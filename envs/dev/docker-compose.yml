@@ -1,0 +1,54 @@
+version: '3.7'
+
+services:
+  redis:
+    image: mirror.gcr.io/valkey/valkey:8.1-alpine
+    command: valkey-server --appendonly yes
+    healthcheck:
+      test: valkey-cli ping
+    volumes:
+      - ./redis/data:/data
+    ports:
+      - ${REDIS_PORT}:6379
+
+  db:
+    image: mirror.gcr.io/postgres:14.0-alpine
+    healthcheck:
+      test: pg_isready -U ${POSTGRES_USER} || exit 1
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./db/data:/var/lib/postgresql/data
+    ports:
+      - ${POSTGRES_PORT}:5432
+
+  backups:
+    build:
+      context: backups/
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - BACKUP_LOCAL_DIR=/var/backups
+      - BACKUP_LOCAL_ROTATE_KEEP_LAST=${BACKUP_LOCAL_ROTATE_KEEP_LAST}
+      - B2_BUCKET=${BACKUP_B2_BUCKET}
+      - B2_FOLDER=${BACKUP_B2_FOLDER}
+      - B2_APPLICATION_KEY_ID=${BACKUP_B2_APPLICATION_KEY_ID}
+      - B2_APPLICATION_KEY=${BACKUP_B2_APPLICATION_KEY}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - EMAIL_TARGET=${EMAIL_TARGET}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL}
+      - SENTRY_DSN=${SENTRY_DSN}
+    volumes:
+      - backups:/var/backups
+    depends_on:
+      - db
+
+volumes:
+  backups:

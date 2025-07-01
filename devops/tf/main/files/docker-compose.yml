@@ -1,0 +1,124 @@
+version: '3.7'
+
+services:
+  app:
+    image: ${ecr_base_url}/${ecr_image}
+    init: true
+    restart: always
+    env_file: ./.env
+    healthcheck:
+      test: ["CMD", "./healthcheck.py", "/var/run/gunicorn/gunicorn.sock"]
+    environment:
+      # Add this variable to all containers that should dump Prometheus metrics.  Each container besides this one
+      # should use a different subdirectory of /prometheus-multiproc-dir, e.g.
+      # - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir/other-container
+      # Don't forget to also mount the prometheus-metrics volume in other containers too.
+      - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir
+    volumes:
+      - backend-static:/root/src/static
+      - gunicorn-socket:/var/run/gunicorn
+      - ./media:/root/src/media
+      # Add this mount to each container that should dump Prometheus metrics.
+      - ./prometheus-metrics:/prometheus-multiproc-dir
+    logging: &app_logging
+      driver: awslogs
+      options:
+        awslogs-region: ${region}
+        awslogs-group: /aws/ec2/${name}-${env}
+        tag: '$${INSTANCE_ID_SUBST}-app'
+        awslogs-create-group: "true"
+
+  backups:
+    build:
+      context: backups/
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - BACKUP_LOCAL_DIR=/var/backups
+      - BACKUP_LOCAL_ROTATE_KEEP_LAST=${BACKUP_LOCAL_ROTATE_KEEP_LAST}
+      - B2_BUCKET=${BACKUP_B2_BUCKET}
+      - B2_FOLDER=${BACKUP_B2_FOLDER}
+      - B2_APPLICATION_KEY_ID=${BACKUP_B2_APPLICATION_KEY_ID}
+      - B2_APPLICATION_KEY=${BACKUP_B2_APPLICATION_KEY}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - EMAIL_TARGET=${EMAIL_TARGET}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL}
+      - SENTRY_DSN=${SENTRY_DSN}
+    volumes:
+      - backups:/var/backups
+    logging:
+      <<: *app_logging
+
+  node-exporter:
+    image: ghcr.io/reef-technologies/node-exporter-aws-ec2:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+      - nodeexporter_collectors:/textfile_collectors
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    logging: &exporter_logging
+      driver: journald
+      options:
+        tag: '{###{.Name}###}'
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.40.0
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    restart: unless-stopped
+    logging:
+      <<: *exporter_logging
+
+  nginx:
+    image: 'ghcr.io/reef-technologies/nginx-rt:v1.2.2'
+    restart: unless-stopped
+    healthcheck:
+      test: wget -q --spider http://0.0.0.0:8000/alive/ || exit 1
+    depends_on:
+      - app
+      - cadvisor
+      - node-exporter
+    command: nginx -g 'daemon off;'
+    ports:
+      - 10443:10443
+      - 8000:8000
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates
+      - ./nginx/config_helpers:/etc/nginx/config_helpers
+      - backend-static:/srv/static:ro
+      - ./media:/srv/media:ro
+      - ./nginx/monitoring_certs:/etc/monitoring_certs
+      - gunicorn-socket:/var/run/gunicorn:ro
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${region}
+        awslogs-group: /aws/ec2/${name}-${env}
+        tag: '$${INSTANCE_ID_SUBST}-nginx'
+        awslogs-create-group: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  backend-static:
+  backups:
+  gunicorn-socket:
+  nodeexporter_collectors:
