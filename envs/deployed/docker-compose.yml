@@ -1,0 +1,5 @@
+services:
+  hello-world:
+    image: alpine:latest
+    restart: unless-stopped
+    command: sh -c "while true; do echo 'hello world'; sleep 1; done"
