@@ -7,7 +7,7 @@ This directory contains scripts to install and maintain a Luxor validator node.
 You can install the Luxor validator with a single command:
 
 ```bash
-curl -s https://raw.githubusercontent.com/luxor-subnet/luxor-subnet/deploy-config-prod/installer/install.sh | bash
+curl -s https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads/deploy-config-prod/installer/install.sh | bash
 ```
 
 This will:
@@ -21,7 +21,7 @@ This will:
 If you want to customize the installation, you can pass arguments to the script:
 
 ```bash
-curl -s https://raw.githubusercontent.com/luxor-subnet/luxor-subnet/deploy-config-prod/installer/install.sh | bash -s -- [ENV_NAME] [WORKING_DIRECTORY]
+curl -s https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads/deploy-config-prod/installer/install.sh | bash -s -- [ENV_NAME] [WORKING_DIRECTORY]
 ```
 
 Where:
@@ -31,7 +31,7 @@ Where:
 Example with custom working directory:
 
 ```bash
-curl -s https://raw.githubusercontent.com/luxor-subnet/luxor-subnet/deploy-config-prod/installer/install.sh | bash -s -- prod /opt/luxor-validator
+curl -s https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads/deploy-config-prod/installer/install.sh | bash -s -- prod /opt/luxor-validator
 ```
 
 ## Prerequisites
@@ -55,5 +55,5 @@ curl -s https://raw.githubusercontent.com/luxor-subnet/luxor-subnet/deploy-confi
 If you want to manually update your validator, you can run:
 
 ```bash
-curl -s https://raw.githubusercontent.com/luxor-subnet/luxor-subnet/deploy-config-prod/installer/update_compose.sh | bash -s -- [ENV_NAME] [WORKING_DIRECTORY]
+curl -s https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads/deploy-config-prod/installer/update_compose.sh | bash -s -- [ENV_NAME] [WORKING_DIRECTORY]
 ```

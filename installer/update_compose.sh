@@ -5,17 +5,19 @@ set -euo pipefail
 
 # Default values for arguments
 ENV_NAME="${1:-prod}"
-WORKING_DIRECTORY="${2:-~/luxor-validator/}"
+WORKING_DIRECTORY="${2:-$HOME/luxor-validator/}"
+
+mkdir -p "${WORKING_DIRECTORY}"
 
 # Ensure we're in the working directory
 cd "${WORKING_DIRECTORY}"
 
-# Hardcoded GitHub raw content URL
-GITHUB_RAW_URL="https://raw.githubusercontent.com/luxor-subnet/luxor-subnet"
+# Hardcoded GitHub raw URL
+GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads"
 
 # Use a fixed temporary file for the remote docker-compose.yml
 TEMP_FILE="/tmp/luxor_compose_update.yml"
-curl -s "${GITHUB_RAW_URL}/deploy-config-${ENV_NAME}/envs/deployed/docker-compose.yml" > "${TEMP_FILE}"
+curl -s "${GITHUB_URL}/deploy-config-${ENV_NAME}/envs/deployed/docker-compose.yml" > "${TEMP_FILE}"
 
 # Path to the local docker-compose.yml file
 LOCAL_FILE="${WORKING_DIRECTORY}/docker-compose.yml"
