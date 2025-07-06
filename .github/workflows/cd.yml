@@ -19,7 +19,11 @@ jobs:
         run: |
           set -e
           export ENVIRONMENT=${GITHUB_REF_NAME:7}
-          ./deploy-to-aws.sh $ENVIRONMENT
+          if [[ ! "$GITHUB_REF_NAME" =~ ^deploy-config- ]]; then
+            ./deploy-to-aws.sh $ENVIRONMENT
+          else
+            echo "Skipping deploy-to-aws.sh for deploy-config-* branch"
+          fi
           export TAG=deployed-${ENVIRONMENT}-`date -u +"%Y-%m-%dT%H.%M.%S"`
           git tag $TAG
           git push origin $TAG
