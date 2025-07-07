@@ -2,203 +2,138 @@ import datetime
 import unittest.mock
 
 import pytest
-from app.src.luxor_subnet.celery_schedules import ScheduleEveryBittensorEpoch
-from app.src.luxor_subnet.validator.tasks import (
-    BLOCK_TIME,
-    Epoch,
-    get_epoch,
-    get_hashrates,
+
+from luxor_subnet.validator.models import WeightsBatch
+from luxor_subnet.validator.tasks import (
+    calculate_weights,
     set_weights,
 )
-from django.conf import settings
 
 
-def test_get_epoch(bittensor):
+@pytest.mark.django_db
+def test_calculate_weights(bittensor, luxor):
     bittensor.head.get = unittest.mock.AsyncMock(
         return_value=unittest.mock.Mock(
-            number=1000,
+            number=1010,
         ),
     )
     bittensor.block.return_value.get = unittest.mock.AsyncMock(
         return_value=unittest.mock.Mock(
-            number=719,
+            number=1007,
             get_timestamp=unittest.mock.AsyncMock(
-                return_value=datetime.datetime(2025, 7, 1, 10, 0, 0),
+                return_value=datetime.datetime(2025, 7, 2, 10, 0, 0),
             ),
         ),
     )
     bittensor.subnet.return_value.epoch.return_value = range(719, 1080)
 
-    assert get_epoch(netuid=1) == Epoch(
-        block=719,
-        timestamp=datetime.datetime(2025, 7, 1, 10, 0, 0),
-    )
+    assert calculate_weights() == {
+        "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 95298044615003,
+    }
+
+    assert WeightsBatch.objects.count() == 1
+
+    batch = WeightsBatch.objects.get()
+
+    assert batch.epoch_start == 719
+    assert batch.block == 1007
+    assert batch.weights == {
+        "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 95298044615003,
+    }
 
 
-def test_get_hashrates(luxor):
-    epoch = Epoch(
-        block=719,
-        timestamp=datetime.datetime(2025, 7, 2, 10, 0, 0),
-    )
-    hashrates = get_hashrates(
-        epoch,
-        "luxor-subaccount-name",
-    )
-
-    assert hashrates == (
-        epoch,
-        {
-            "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 95206304622594,
-        },
-    )
-
-
+@pytest.mark.django_db
 def test_set_weights(bittensor):
-    assert set_weights(
-        epoch=Epoch(
-            block=719,
-            timestamp=datetime.datetime(2025, 7, 2, 10, 0, 0),
+    bittensor.head.get = unittest.mock.AsyncMock(
+        return_value=unittest.mock.MagicMock(
+            number=1010,
         ),
-        hashrates={
+    )
+    bittensor.block.return_value.get = unittest.mock.AsyncMock(
+        return_value=unittest.mock.MagicMock(
+            number=1007,
+            get_timestamp=unittest.mock.AsyncMock(
+                return_value=datetime.datetime(2025, 7, 2, 10, 0, 0),
+            ),
+        ),
+    )
+    bittensor.subnet.return_value.epoch.return_value = range(719, 1080)
+
+    batch = WeightsBatch.objects.create(
+        block=1007,
+        epoch_start=719,
+        weights={
             "hotkey_0": 0,
             "hotkey_1": 1,
             "hotkey_3": 3,
         },
-        netuid=388,
     )
+
+    assert set_weights()
 
     bittensor.subnet.assert_called_once_with(388)
     bittensor.subnet.return_value.weights.commit.assert_awaited_once_with(
         {
-            0: 0.0,
-            1: 0.25,
-            3: 0.75,
+            0: 0,
+            1: 1,
+            3: 3,
         },
     )
 
+    batch.refresh_from_db()
 
-@pytest.mark.parametrize(
-    "block_number,offset,threshold,is_due,wait",
-    [
-        (
-            1078,
-            0,
-            0,
-            False,
-            24.0,
-        ),
-        (
-            1079,
-            0,
-            0,
-            False,
-            12.0,
-        ),
-        (
-            1080,
-            0,
-            0,
-            True,
-            4332.0,
-        ),
-        (
-            1081,
-            0,
-            0,
-            False,
-            4320.0,
-        ),
-        (
-            1079,
-            0,
-            10,
-            False,
-            12.0,
-        ),
-        (
-            1080,
-            0,
-            10,
-            True,
-            4332.0,
-        ),
-        (
-            1081,
-            0,
-            10,
-            True,
-            4320.0,
-        ),
-        (
-            1089,
-            0,
-            10,
-            True,
-            4224.0,
-        ),
-        (
-            1090,
-            0,
-            10,
-            False,
-            4212.0,
-        ),
-        (
-            1091,
-            0,
-            10,
-            False,
-            4200.0,
-        ),
-        (
-            1179,
-            100,
-            10,
-            False,
-            12.0,
-        ),
-        (
-            1180,
-            100,
-            10,
-            True,
-            4332.0,
-        ),
-        (
-            1181,
-            100,
-            10,
-            True,
-            4320.0,
-        ),
-        (
-            1189,
-            100,
-            10,
-            True,
-            4224.0,
-        ),
-        (
-            1190,
-            100,
-            10,
-            False,
-            4212.0,
-        ),
-    ],
-)
-def test_bittensor_schedule(bittensor, block_number, offset, threshold, is_due, wait):
-    bittensor.blocks.head.return_value.number = block_number
+    assert batch.scored is True
 
-    schedule = ScheduleEveryBittensorEpoch(
-        netuid=1,
-        threshold=threshold,
-        offset=offset,
+
+@pytest.mark.django_db
+def test_set_weights_no_batches_to_score(bittensor):
+    bittensor.head.get = unittest.mock.AsyncMock(
+        return_value=unittest.mock.MagicMock(
+            number=1010,
+        ),
+    )
+    bittensor.subnet.return_value.epoch.return_value = range(719, 1080)
+
+    WeightsBatch.objects.create(
+        block=1007,
+        epoch_start=719,
+        should_be_scored=False,
+        weights={
+            "hotkey_0": 0,
+            "hotkey_1": 1,
+            "hotkey_3": 3,
+        },
     )
 
-    last_run_at = datetime.datetime.now() - BLOCK_TIME * settings.BITTENSOR_SUBNET_TEMPO
+    assert not set_weights()
 
-    assert schedule.is_due(last_run_at) == (
-        is_due,
-        wait,
+    bittensor.subnet.return_value.weights.commit.assert_not_awaited()
+
+
+@pytest.mark.django_db
+def test_set_weights_expired_batches(bittensor):
+    bittensor.head.get = unittest.mock.AsyncMock(
+        return_value=unittest.mock.MagicMock(
+            number=1010,
+        ),
     )
+    bittensor.subnet.return_value.epoch.return_value = range(719, 1080)
+
+    batch = WeightsBatch.objects.create(
+        block=648,
+        epoch_start=360,
+        should_be_scored=True,
+        weights={
+            "hotkey_0": 0,
+            "hotkey_1": 1,
+            "hotkey_3": 3,
+        },
+    )
+
+    assert not set_weights()
+
+    bittensor.subnet.return_value.weights.commit.assert_not_awaited()
+
+    batch.refresh_from_db()
+
+    assert batch.should_be_scored is False

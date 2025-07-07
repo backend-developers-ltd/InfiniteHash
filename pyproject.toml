@@ -26,6 +26,7 @@ dependencies = [
     "django-business-metrics>=1.0.1,<2",
     "turbobt~=0.0.9",
     "httpx~=0.26",
+    "tenacity~=9.1.2",
 ]
 
 [build-system]
@@ -81,4 +82,4 @@ ignore = [
 
 [tool.codespell]
 skip = '*.min.js,*.lock,*/monitoring_certs/*'
-ignore-words-list = 'datas'
+ignore-words-list = 'acount,datas'

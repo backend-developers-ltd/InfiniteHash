@@ -2,16 +2,16 @@
 Django settings for luxor_subnet project.
 """
 
+import datetime
 import inspect
 import logging
+import pathlib
 from datetime import timedelta
 from functools import wraps
 
 import environ
 import structlog
 from kombu import Queue
-
-from luxor_subnet.celery_schedules import ScheduleEveryBittensorEpoch
 
 root = environ.Path(__file__) - 2
 
@@ -208,8 +208,11 @@ REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
 
 
 BITTENSOR_NETUID = env.int("BITTENSOR_NETUID")
-BITTENSOR_SUBNET_TEMPO = env.int("BITTENSOR_SUBNET_TEMPO", 360)
 BITTENSOR_NETWORK = env.str("BITTENSOR_NETWORK")
+BITTENSOR_WALLET_DIRECTORY = env.path(
+    "BITTENSOR_WALLET_DIRECTORY",
+    default=pathlib.Path("~").expanduser() / ".bittensor" / "wallets",
+)
 BITTENSOR_WALLET_HOTKEY_NAME = env.str("BITTENSOR_WALLET_HOTKEY_NAME")
 BITTENSOR_WALLET_NAME = env.str("BITTENSOR_WALLET_NAME")
 
@@ -218,8 +221,8 @@ LUXOR_API_KEY = env.str("LUXOR_API_KEY")
 LUXOR_SUBACCOUNT_NAME = env.str("LUXOR_SUBACCOUNT_NAME")
 
 
-VALIDATION_OFFSET = int(0.8 * BITTENSOR_SUBNET_TEMPO)
-VALIDATION_THRESHOLD = int(0.1 * BITTENSOR_SUBNET_TEMPO)
+VALIDATION_OFFSET = 0.8
+VALIDATION_THRESHOLD = 0.05
 
 
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
@@ -235,17 +238,19 @@ CELERY_COMPRESSION = "gzip"  # task compression
 CELERY_MESSAGE_COMPRESSION = "gzip"  # result compression
 CELERY_SEND_EVENTS = True  # needed for worker monitoring
 CELERY_BEAT_SCHEDULE = {  # type: ignore
-    "update_weights": {
-        "task": "luxor_subnet.validator.tasks.update_weights",
-        "args": [BITTENSOR_NETUID, LUXOR_SUBACCOUNT_NAME],
-        "kwargs": {},
-        "schedule": ScheduleEveryBittensorEpoch(
-            netuid=BITTENSOR_NETUID,
-            offset=VALIDATION_OFFSET,
-            tempo=BITTENSOR_SUBNET_TEMPO,
-            threshold=VALIDATION_THRESHOLD,
-        ),
-        "options": {"time_limit": 300},
+    "calculate_weights": {
+        "task": "luxor_subnet.validator.tasks.calculate_weights",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
+    "set_weights": {
+        "task": "luxor_subnet.validator.tasks.set_weights",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
     },
 }
 CELERY_TASK_CREATE_MISSING_QUEUES = False

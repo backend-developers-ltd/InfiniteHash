@@ -5,9 +5,9 @@ import enum
 from typing import NamedTuple, TypeAlias
 
 import bittensor_wallet
-import celery
 import httpx
 import structlog
+import tenacity
 import turbobt
 import turbobt.substrate.exceptions
 import websockets
@@ -15,12 +15,16 @@ from asgiref.sync import async_to_sync
 from celery import Task
 from celery.utils.log import get_task_logger
 from django.conf import settings
+from django.db import transaction
 
 from luxor_subnet.celery import app
+from luxor_subnet.validator.locks import Locked, LockType, get_advisory_lock
+from luxor_subnet.validator.models import WeightsBatch
 
-BLOCK_TIME = datetime.timedelta(seconds=12)
+WEIGHT_SETTING_ATTEMPTS = 100
+WEIGHT_SETTING_FAILURE_BACKOFF = 5
 
-Hashrates: TypeAlias = dict[str, int]
+Hashrates: TypeAlias = dict[str, list[int]]
 
 
 class Epoch(NamedTuple):
@@ -63,24 +67,54 @@ def demo_task(x, y):
     return x + y
 
 
-async def get_epoch_async(netuid: int) -> Epoch:
+async def calculate_weights_async(
+    window: datetime.timedelta = datetime.timedelta(days=1),
+):
     async with turbobt.Bittensor(settings.BITTENSOR_NETWORK) as bittensor:
         block, subnet = await asyncio.gather(
             bittensor.head.get(),
-            bittensor.subnet(netuid).get(),
+            bittensor.subnet(settings.BITTENSOR_NETUID).get(),
         )
-
-        assert subnet
-        assert subnet.tempo == settings.BITTENSOR_SUBNET_TEMPO
-
         epoch = subnet.epoch(block.number)
-        epoch_block = await bittensor.block(epoch.start).get()
-        epoch_timestamp = await epoch_block.get_timestamp()
 
-        return Epoch(
-            epoch_block.number,
-            epoch_timestamp,
+        batches = WeightsBatch.objects.filter(
+            epoch_start=epoch.start,
         )
+
+        if await batches.acount():
+            return
+
+        validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet.tempo)
+        blocks_left = validation_start_block_number - block.number
+
+        if blocks_left > 0:
+            return
+
+        if abs(blocks_left) >= settings.VALIDATION_THRESHOLD * subnet.tempo:
+            logger.error(
+                "Too late to set weights. Epoch start block: #%s, current block: #%s",
+                epoch.start,
+                block.number,
+            )
+            return
+
+        validation_start_block = await bittensor.block(validation_start_block_number).get()
+        validation_start_datetime = await validation_start_block.get_timestamp()
+
+        hashrates = await get_hashrates_async(
+            settings.LUXOR_SUBACCOUNT_NAME,
+            start=validation_start_datetime - window,
+            end=validation_start_datetime,
+        )
+        weights = {hotkey: sum(hotkey_hashrates) for hotkey, hotkey_hashrates in hashrates.items()}
+
+        await WeightsBatch.objects.acreate(
+            block=validation_start_block.number,
+            epoch_start=epoch.start,
+            weights=weights,
+        )
+
+        return weights
 
 
 @app.task(
@@ -89,21 +123,24 @@ async def get_epoch_async(netuid: int) -> Epoch:
         websockets.WebSocketException,
     ),
 )
-def get_epoch(netuid: int) -> Epoch:
-    return async_to_sync(get_epoch_async)(netuid)
+def calculate_weights():
+    with transaction.atomic():
+        try:
+            get_advisory_lock(LockType.VALIDATION_SCHEDULING)
+        except Locked:
+            logger.debug("Another thread already scheduling validation")
+            return
+
+        return async_to_sync(calculate_weights_async)()
 
 
 async def get_hashrates_async(
-    epoch: Epoch,
     subaccount_name: str,
-    window: datetime.timedelta = datetime.timedelta(days=1),
+    start: datetime.datetime,
+    end: datetime.datetime,
     page_size: int = 100,
     tick_size: TickSize = TickSize.HOUR,
-) -> tuple[
-    Epoch,
-    Hashrates,
-]:
-    validation_start = epoch.timestamp + BLOCK_TIME * settings.VALIDATION_OFFSET
+) -> Hashrates:
     hashrates = collections.defaultdict(list)
 
     async with httpx.AsyncClient(
@@ -112,10 +149,7 @@ async def get_hashrates_async(
             "Authorization": settings.LUXOR_API_KEY,
         },
     ) as luxor:
-        start, end = (
-            validation_start - window,
-            validation_start,
-        )
+        window = end - start
         samples = int(window / tick_size.timedelta)
 
         page_url = httpx.URL(
@@ -152,64 +186,98 @@ async def get_hashrates_async(
 
             page_url = response_json["pagination"]["next_page_url"]
 
-    return (
-        epoch,
-        {hotkey: sum(hotkey_hashrates) for hotkey, hotkey_hashrates in hashrates.items()},
-    )
+    return hashrates
 
 
-@app.task(
-    autoretry_for=(httpx.HTTPError,),
-)
-def get_hashrates(
-    epoch: Epoch,
-    subaccount_name: str,
-) -> tuple[
-    Epoch,
-    Hashrates,
-]:
-    return async_to_sync(get_hashrates_async)(
-        epoch,
-        subaccount_name,
-    )
+async def set_weights_async() -> bool:
+    batches = [
+        batch
+        async for batch in WeightsBatch.objects.filter(
+            scored=False,
+            should_be_scored=True,
+        )
+    ]
 
-
-async def set_weights_async(
-    epoch: Epoch,
-    hashrates: Hashrates,
-    netuid: int,
-) -> bool:
-    if not hashrates:
+    if not batches:
         return False
-
-    total_hashrate = sum(hashrates.values())
 
     async with turbobt.Bittensor(
         settings.BITTENSOR_NETWORK,
         wallet=bittensor_wallet.Wallet(
-            settings.BITTENSOR_WALLET_NAME,
-            settings.BITTENSOR_WALLET_HOTKEY_NAME,
+            name=settings.BITTENSOR_WALLET_NAME,
+            hotkey=settings.BITTENSOR_WALLET_HOTKEY_NAME,
+            path=str(settings.BITTENSOR_WALLET_DIRECTORY),
         ),
     ) as bittensor:
-        subnet = bittensor.subnet(netuid)
+        block, subnet = await asyncio.gather(
+            bittensor.head.get(),
+            bittensor.subnet(settings.BITTENSOR_NETUID).get(),
+        )
+        epoch = subnet.epoch(block.number)
 
-        async with bittensor.block(epoch.block + settings.VALIDATION_OFFSET):
-            neurons = {neuron.hotkey: neuron for neuron in await subnet.list_neurons()}
+        expired_batches = [batch for batch in batches if batch.epoch_start < epoch.start]
 
-        weights = {}
+        if expired_batches:
+            for batch in expired_batches:
+                batch.should_be_scored = False
 
-        for hotkey, hashrate in hashrates.items():
-            try:
-                neuron = neurons[hotkey]
-            except KeyError:
-                continue
+            await WeightsBatch.objects.abulk_update(
+                expired_batches,
+                fields=("should_be_scored",),
+            )
 
-            weights[neuron.uid] = hashrate / total_hashrate
-
-        if not weights:
+            logger.error(
+                "Expired batches: [%s]",
+                ", ".join(str(batch.id) for batch in batches),
+            )
             return False
 
-        await subnet.weights.commit(weights)
+        if len(batches) > 1:
+            logger.error("Unexpected number batches eligible for scoring: %s", len(batches))
+
+            for batch in batches[:-1]:
+                batch.scored = True
+
+            batches = [batches[-1]]
+
+        logger.info(
+            "Selected batches for scoring: [%s]",
+            ", ".join(str(batch.id) for batch in batches),
+        )
+
+        validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet.tempo)
+        validation_start_block = await bittensor.block(validation_start_block_number).get()
+
+        async with validation_start_block:
+            neurons = {neuron.hotkey: neuron for neuron in await subnet.list_neurons()}
+
+        weights_by_uid = collections.defaultdict[int, float](float)
+
+        for batch in batches:
+            for hotkey, hotkey_weight in batch.weights.items():
+                try:
+                    neuron = neurons[hotkey]
+                except KeyError:
+                    continue
+
+                weights_by_uid[neuron.uid] += hotkey_weight
+
+            batch.scored = True
+
+        if not weights_by_uid:
+            return False
+
+        async for attempt in tenacity.AsyncRetrying(
+            stop=tenacity.stop_after_attempt(WEIGHT_SETTING_ATTEMPTS),
+            wait=tenacity.wait_fixed(WEIGHT_SETTING_FAILURE_BACKOFF),
+        ):
+            with attempt:
+                await subnet.weights.commit(weights_by_uid)
+
+        await WeightsBatch.objects.abulk_update(
+            batches,
+            fields=("scored",),
+        )
 
         return True
 
@@ -220,25 +288,12 @@ async def set_weights_async(
         websockets.WebSocketException,
     ),
 )
-def set_weights(
-    epoch: Epoch,
-    hashrates: Hashrates,
-    netuid: int,
-) -> bool:
-    return async_to_sync(set_weights_async)(
-        epoch,
-        hashrates,
-        netuid,
-    )
+def set_weights() -> bool:
+    with transaction.atomic():
+        try:
+            get_advisory_lock(LockType.WEIGHT_SETTING)
+        except Locked:
+            logger.debug("Another thread already scheduling validation")
+            return False
 
-
-@app.task(
-    ignore_result=True,
-)
-def update_weights(netuid, subaccount_name):
-    chain = celery.chain(
-        get_epoch.s(netuid),
-        get_hashrates.s(subaccount_name),
-        set_weights.s(netuid),
-    )
-    chain.apply_async()
+        return async_to_sync(set_weights_async)()

@@ -34,7 +34,7 @@ def bittensor():
             for i in range(10)
         ],
     )
-    mocked.subnet.return_value.tempo = settings.BITTENSOR_SUBNET_TEMPO
+    mocked.subnet.return_value.tempo = 360
     mocked.subnet.return_value.weights.commit = unittest.mock.AsyncMock()
 
     with unittest.mock.patch(
