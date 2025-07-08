@@ -2,15 +2,15 @@
 Django settings for luxor_subnet project.
 """
 
+import datetime
 import inspect
 import logging
+import pathlib
 from datetime import timedelta
 from functools import wraps
 
 import environ
 import structlog
-
-# from celery.schedules import crontab
 from kombu import Queue
 
 root = environ.Path(__file__) - 2
@@ -207,8 +207,26 @@ REDIS_PORT = env.int("REDIS_PORT")
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
 
 
+BITTENSOR_NETUID = env.int("BITTENSOR_NETUID")
+BITTENSOR_NETWORK = env.str("BITTENSOR_NETWORK")
+BITTENSOR_WALLET_DIRECTORY = env.path(
+    "BITTENSOR_WALLET_DIRECTORY",
+    default=pathlib.Path("~").expanduser() / ".bittensor" / "wallets",
+)
+BITTENSOR_WALLET_HOTKEY_NAME = env.str("BITTENSOR_WALLET_HOTKEY_NAME")
+BITTENSOR_WALLET_NAME = env.str("BITTENSOR_WALLET_NAME")
+
+
+LUXOR_API_KEY = env.str("LUXOR_API_KEY")
+LUXOR_SUBACCOUNT_NAME = env.str("LUXOR_SUBACCOUNT_NAME")
+
+
+VALIDATION_OFFSET = 0.8
+VALIDATION_THRESHOLD = 0.05
+
+
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
-CONSTANCE_CONFIG = {
+CONSTANCE_CONFIG = {  # type: ignore
     # "PARAMETER": (default-value, "Help text", type),
 }
 
@@ -220,21 +238,29 @@ CELERY_COMPRESSION = "gzip"  # task compression
 CELERY_MESSAGE_COMPRESSION = "gzip"  # result compression
 CELERY_SEND_EVENTS = True  # needed for worker monitoring
 CELERY_BEAT_SCHEDULE = {  # type: ignore
-    # 'task_name': {
-    #     'task': "luxor_subnet.validator.tasks.demo_task",
-    #     'args': [2, 2],
-    #     'kwargs': {},
-    #     'schedule': crontab(minute=0, hour=0),
-    #     'options': {"time_limit": 300},
-    # },
+    "calculate_weights": {
+        "task": "luxor_subnet.validator.tasks.calculate_weights",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
+    "set_weights": {
+        "task": "luxor_subnet.validator.tasks.set_weights",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
 }
 CELERY_TASK_CREATE_MISSING_QUEUES = False
 CELERY_TASK_QUEUES = (Queue("celery"), Queue("worker"), Queue("dead_letter"))
 CELERY_TASK_DEFAULT_EXCHANGE = "celery"
 CELERY_TASK_DEFAULT_ROUTING_KEY = "celery"
+CELERY_TASK_DEFAULT_RATE_LIMIT = "1/s"
 CELERY_TASK_ANNOTATIONS = {"*": {"acks_late": True, "reject_on_worker_lost": True}}
 CELERY_TASK_ROUTES = {"*": {"queue": "celery"}}
-CELERY_TASK_TIME_LIMIT = int(timedelta(minutes=5).total_seconds())
+CELERY_TASK_TIME_LIMIT = int(timedelta(minutes=1).total_seconds())
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_WORKER_SEND_TASK_EVENTS = True
 CELERY_TASK_SEND_SENT_EVENT = True
