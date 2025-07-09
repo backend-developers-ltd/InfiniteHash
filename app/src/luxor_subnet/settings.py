@@ -260,7 +260,7 @@ CELERY_TASK_DEFAULT_ROUTING_KEY = "celery"
 CELERY_TASK_DEFAULT_RATE_LIMIT = "1/s"
 CELERY_TASK_ANNOTATIONS = {"*": {"acks_late": True, "reject_on_worker_lost": True}}
 CELERY_TASK_ROUTES = {"*": {"queue": "celery"}}
-CELERY_TASK_TIME_LIMIT = int(timedelta(minutes=1).total_seconds())
+CELERY_TASK_TIME_LIMIT = int(timedelta(minutes=5).total_seconds())
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_WORKER_SEND_TASK_EVENTS = True
 CELERY_TASK_SEND_SENT_EVENT = True
