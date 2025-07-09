@@ -24,6 +24,9 @@ dependencies = [
     "prometheus-client~=0.17.0",
     "django-prometheus==2.3.1",
     "django-business-metrics>=1.0.1,<2",
+    "turbobt~=0.0.9",
+    "httpx~=0.26",
+    "tenacity~=9.1.2",
 ]
 
 [build-system]
@@ -38,6 +41,7 @@ test = [
     'pytest',
     'pytest-django',
     'pytest-xdist',
+    'pytest_httpx',
     'ipdb',
     'freezegun',
 ]
@@ -78,4 +82,4 @@ ignore = [
 
 [tool.codespell]
 skip = '*.min.js,*.lock,*/monitoring_certs/*'
-ignore-words-list = 'datas'
+ignore-words-list = 'acount,datas'
