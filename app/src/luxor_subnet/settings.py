@@ -152,7 +152,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "luxor_subnet.wsgi.application"
 
 DATABASES = {}
-if env("DATABASE_POOL_URL"):  # DB transaction-based connection pool, such as one provided PgBouncer
+if env("DATABASE_POOL_URL", default=""):  # DB transaction-based connection pool, such as one provided PgBouncer
     DATABASES["default"] = {
         **env.db_url("DATABASE_POOL_URL"),
         "DISABLE_SERVER_SIDE_CURSORS": True,  # prevents random cursor errors with transaction-based connection pool
