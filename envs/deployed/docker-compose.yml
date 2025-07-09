@@ -1,5 +1,97 @@
 services:
-  hello-world:
-    image: alpine:latest
+  redis:
+    image: mirror.gcr.io/valkey/valkey:8.1-alpine
+    command: valkey-server --appendonly yes
+    healthcheck:
+      test: valkey-cli ping
     restart: unless-stopped
-    command: sh -c "while true; do echo 'hello world'; sleep 1; done"
+    volumes:
+      - ./redis/data:/data
+    logging: &logging
+      driver: journald
+      options:
+        tag: '{{.Name}}'
+
+  db:
+    image: postgres:14.0-alpine
+    healthcheck:
+      test: pg_isready -U postgres || exit 1
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./db/data:/var/lib/postgresql/data
+    logging:
+      <<: *logging
+
+  app:
+    build:
+      context: .
+      dockerfile: app/envs/deployed/Dockerfile
+    image: ghcr.io/reef-technologies/infinitehash-subnet-prod
+    healthcheck:
+      test: ["CMD", "./healthcheck.py", "/var/run/gunicorn/gunicorn.sock"]
+    init: true
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      # Add this variable to all containers that should dump Prometheus metrics.  Each container besides this one
+      # should use a different subdirectory of /prometheus-multiproc-dir, e.g.
+      # - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir/other-container
+      # Don't forget to also mount the prometheus-metrics volume in other containers too.
+      - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir
+    volumes:
+      - backend-static:/root/src/static
+      - gunicorn-socket:/var/run/gunicorn
+      - ./media:/root/src/media
+      - ~/.bittensor:/root/.bittensor
+      # Add this mount to each container that should dump Prometheus metrics.
+      - ./prometheus-metrics:/prometheus-multiproc-dir
+    depends_on:
+      - redis
+      - db
+    logging:
+      <<: *logging
+
+  celery-worker:
+    image: ghcr.io/reef-technologies/infinitehash-subnet-prod
+    init: true
+    healthcheck:
+      test: celery -A luxor_subnet status > /dev/null || exit 1
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      - DEBUG=off
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_MASTER_CONCURRENCY=2
+      - CELERY_WORKER_CONCURRENCY=2
+      - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir/celery-worker
+    command: ./celery-entrypoint.sh
+    volumes:
+      - ~/.bittensor:/root/.bittensor
+      - ./prometheus-metrics:/prometheus-multiproc-dir
+    tmpfs: /run
+    depends_on:
+      - redis
+    logging:
+      <<: *logging
+
+  celery-beat:
+    image: ghcr.io/reef-technologies/infinitehash-subnet-prod
+    init: true
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      - DEBUG=off
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    command: nice celery -A luxor_subnet beat -l INFO --schedule /tmp/celerybeat-schedule -f /tmp/logs/celery-beat.log
+    volumes:
+      - ./logs:/tmp/logs
+    depends_on:
+      - redis
+    logging:
+      <<: *logging
+
+volumes:
+  backend-static:
+  gunicorn-socket:
