@@ -4,7 +4,7 @@
 set -euo pipefail
 
 PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-ENV_DIR="./envs/prod"
+ENV_DIR="./envs/deployed"
 # shellcheck disable=SC2164
 cd "${PROJECT_DIR}"
 
