@@ -25,16 +25,16 @@ services:
       <<: *logging
 
   app:
-    build:
-      context: .
-      dockerfile: app/envs/deployed/Dockerfile
-    image: ghcr.io/reef-technologies/infinitehash-subnet-prod
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
     healthcheck:
       test: ["CMD", "./healthcheck.py", "/var/run/gunicorn/gunicorn.sock"]
     init: true
     restart: unless-stopped
     env_file: ./.env
     environment:
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      - REDIS_HOST=localhost
+      - REDIS_PORT=8379
       # Add this variable to all containers that should dump Prometheus metrics.  Each container besides this one
       # should use a different subdirectory of /prometheus-multiproc-dir, e.g.
       # - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir/other-container
@@ -54,7 +54,7 @@ services:
       <<: *logging
 
   celery-worker:
-    image: ghcr.io/reef-technologies/infinitehash-subnet-prod
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
     init: true
     healthcheck:
       test: celery -A luxor_subnet status > /dev/null || exit 1
@@ -65,6 +65,9 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_MASTER_CONCURRENCY=2
       - CELERY_WORKER_CONCURRENCY=2
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      - REDIS_HOST=localhost
+      - REDIS_PORT=8379
       - PROMETHEUS_MULTIPROC_DIR=/prometheus-multiproc-dir/celery-worker
     command: ./celery-entrypoint.sh
     volumes:
@@ -77,13 +80,16 @@ services:
       <<: *logging
 
   celery-beat:
-    image: ghcr.io/reef-technologies/infinitehash-subnet-prod
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
     init: true
     restart: unless-stopped
     env_file: ./.env
     environment:
       - DEBUG=off
       - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      - REDIS_HOST=localhost
+      - REDIS_PORT=8379
     command: nice celery -A luxor_subnet beat -l INFO --schedule /tmp/celerybeat-schedule -f /tmp/logs/celery-beat.log
     volumes:
       - ./logs:/tmp/logs

@@ -23,11 +23,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker
-        run: docker compose build
-
-      - name: Push Docker Image
-        run: docker compose push app
+      - name: Build & Push Docker Image
+        run: docker build --platform linux/amd64 -t ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest -f app/envs/deployed/Dockerfile --push .
 
       - name: deploy to aws
         run: |
