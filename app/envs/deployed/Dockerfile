@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y git
 RUN --mount=type=cache,target=/root/.cache/uv \
 	uv sync --frozen --no-install-project --no-dev --no-editable
 
-COPY ./app/src/ ./app/envs/prod/entrypoint.sh ./app/envs/prod/gunicorn.conf.py ./app/envs/prod/celery-entrypoint.sh ./app/envs/prod/prometheus-cleanup.sh /root/src/
+COPY ./app/src/ ./app/envs/deployed/entrypoint.sh ./app/envs/deployed/gunicorn.conf.py ./app/envs/deployed/celery-entrypoint.sh ./app/envs/deployed/prometheus-cleanup.sh /root/src/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
 	uv sync --frozen --no-dev --no-editable
