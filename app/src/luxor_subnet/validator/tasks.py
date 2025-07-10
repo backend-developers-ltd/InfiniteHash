@@ -2,6 +2,7 @@ import asyncio
 import collections
 import datetime
 import enum
+import logging
 from typing import NamedTuple, TypeAlias
 
 import bittensor_wallet
@@ -268,6 +269,7 @@ async def set_weights_async() -> bool:
             return False
 
         async for attempt in tenacity.AsyncRetrying(
+            before_sleep=tenacity.before_sleep_log(logger, logging.ERROR),
             stop=tenacity.stop_after_attempt(WEIGHT_SETTING_ATTEMPTS),
             wait=tenacity.wait_fixed(WEIGHT_SETTING_FAILURE_BACKOFF),
         ):
