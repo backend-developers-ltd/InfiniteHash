@@ -108,7 +108,7 @@ if CORS_ENABLED := env.bool("CORS_ENABLED", default=True):
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Content Security Policy
-if CSP_ENABLED := env.bool("CSP_ENABLED"):
+if CSP_ENABLED := env.bool("CSP_ENABLED", False):
     MIDDLEWARE.append("csp.middleware.CSPMiddleware")
 
     CSP_REPORT_ONLY = env.bool("CSP_REPORT_ONLY", default=True)
@@ -152,7 +152,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "luxor_subnet.wsgi.application"
 
 DATABASES = {}
-if env("DATABASE_POOL_URL"):  # DB transaction-based connection pool, such as one provided PgBouncer
+if env("DATABASE_POOL_URL", default=""):  # DB transaction-based connection pool, such as one provided PgBouncer
     DATABASES["default"] = {
         **env.db_url("DATABASE_POOL_URL"),
         "DISABLE_SERVER_SIDE_CURSORS": True,  # prevents random cursor errors with transaction-based connection pool
@@ -271,15 +271,6 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = env.int("CELERY_WORKER_PREFETCH_MULTIPLIER",
 CELERY_BROKER_POOL_LIMIT = env.int("CELERY_BROKER_POOL_LIMIT", default=50)
 
 DJANGO_STRUCTLOG_CELERY_ENABLED = True
-
-EMAIL_BACKEND = env("EMAIL_BACKEND")
-EMAIL_FILE_PATH = env("EMAIL_FILE_PATH")
-EMAIL_HOST = env("EMAIL_HOST")
-EMAIL_PORT = env.int("EMAIL_PORT")
-EMAIL_HOST_USER = env("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
-EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS")
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
 
 LOGGING = {
     "version": 1,
