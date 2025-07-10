@@ -21,7 +21,7 @@ from luxor_subnet.celery import app
 from luxor_subnet.validator.locks import Locked, LockType, get_advisory_lock
 from luxor_subnet.validator.models import WeightsBatch
 
-WEIGHT_SETTING_ATTEMPTS = 100
+WEIGHT_SETTING_ATTEMPTS = 1
 WEIGHT_SETTING_FAILURE_BACKOFF = 5
 
 Hashrates: TypeAlias = dict[str, list[int]]
