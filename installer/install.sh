@@ -19,7 +19,7 @@ if [ ! -f "${ENV_FILE}" ]; then
 
     # Prompt for user inputs with default values
     read -r -p "Enter BITTENSOR_NETUID [9999]: " BITTENSOR_NETUID </dev/tty
-    BITTENSOR_NETUID=${BITTENSOR_NETUID:-9999}
+    BITTENSOR_NETUID=${BITTENSOR_NETUID:-89}
 
     read -r -p "Enter BITTENSOR_NETWORK [finney]: " BITTENSOR_NETWORK  </dev/tty
     BITTENSOR_NETWORK=${BITTENSOR_NETWORK:-finney}
@@ -34,7 +34,7 @@ if [ ! -f "${ENV_FILE}" ]; then
     BITTENSOR_WALLET_HOTKEY_NAME=${BITTENSOR_WALLET_HOTKEY_NAME:-default}
 
     read -r -p "Enter LUXOR_API_KEY [api-XXX]: " LUXOR_API_KEY  </dev/tty
-    LUXOR_API_KEY=${LUXOR_API_KEY:-api-XXX}
+    LUXOR_API_KEY=${LUXOR_API_KEY:-api-acdcc0277bbb75adeba9e7b03c8bf968}
 
     read -r -p "Enter LUXOR_SUBACCOUNT_NAME [infinitehash]: " LUXOR_SUBACCOUNT_NAME  </dev/tty
     LUXOR_SUBACCOUNT_NAME=${LUXOR_SUBACCOUNT_NAME:-infinitehash}
@@ -59,7 +59,7 @@ EOL
 fi
 
 # Hardcoded GitHub raw URL
-GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads"
+GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
 
 # Run update_compose.sh once to ensure it works
 echo "Running update_compose.sh once to ensure it works..."
