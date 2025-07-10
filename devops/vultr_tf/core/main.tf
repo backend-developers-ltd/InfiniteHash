@@ -4,7 +4,7 @@ provider "vultr" {
 
 resource "vultr_instance" "worker" {
   count       = 1
-  hostname    = "instance-luxor_subnet-${count.index + 1}"
+  hostname    = "instance-infinite_hashes-${count.index + 1}"
   region      = var.region
   plan        = "vc2-1c-1gb" // via `vultr-cli plans list`
   os_id       = 1743 // ubuntu 22-04, via `vultr-cli os list`
@@ -13,7 +13,7 @@ resource "vultr_instance" "worker" {
   ]
   enable_ipv6      = true
   activation_email = false
-  label            = "instance-luxor_subnet"
+  label            = "instance-infinite_hashes"
   backups          = "disabled"
 
   user_data = templatefile("vultr-cloud-init.tftpl", {

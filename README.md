@@ -1,6 +1,6 @@
-# luxor-subnet
+# infinite-hashes
 
-Luxor Bittensor Subnet
+Infinite Hashes Bittensor Subnet
 
 - - -
 
@@ -45,26 +45,26 @@ Use `ssh-keygen` to generate a key pair for the server, then add read-only acces
 # remote server
 mkdir -p ~/repos
 cd ~/repos
-git init --bare --initial-branch=master luxor-subnet.git
+git init --bare --initial-branch=master infinite-hashes.git
 
-mkdir -p ~/domains/luxor-subnet
+mkdir -p ~/domains/infinite-hashes
 ```
 
 ```sh
 # locally
-git remote add production root@<server>:~/repos/luxor-subnet.git
+git remote add production root@<server>:~/repos/infinite-hashes.git
 git push production master
 ```
 
 ```sh
 # remote server
-cd ~/repos/luxor-subnet.git
+cd ~/repos/infinite-hashes.git
 
 cat <<'EOT' > hooks/post-receive
 #!/bin/bash
 unset GIT_INDEX_FILE
 export ROOT=/root
-export REPO=luxor-subnet
+export REPO=infinite-hashes
 while read oldrev newrev ref
 do
     if [[ $ref =~ .*/master$ ]]; then
@@ -81,7 +81,7 @@ EOT
 
 chmod +x hooks/post-receive
 ./hooks/post-receive
-cd ~/domains/luxor-subnet
+cd ~/domains/infinite-hashes
 sudo bin/prepare-os.sh
 ./setup-prod.sh
 
@@ -222,7 +222,7 @@ docker compose run --rm -e EMAIL_TARGET=youremail@domain.com backups ./backup-db
 First, create a Backblaze B2 account and a bucket for backups (with [lifecycle rules](https://www.backblaze.com/docs/cloud-storage-configure-and-manage-lifecycle-rules)):
 
 ```sh
-b2 bucket create --lifecycle-rule '{"daysFromHidingToDeleting": 30, "daysFromUploadingToHiding": 30, "fileNamePrefix": "folder/"}' "luxor-subnet-backups" allPrivate
+b2 bucket create --lifecycle-rule '{"daysFromHidingToDeleting": 30, "daysFromUploadingToHiding": 30, "fileNamePrefix": "folder/"}' "infinite-hashes-backups" allPrivate
 ```
 
 > If you want to add backups to already existing bucket, use `b2 bucket update` command and don't forget to list all previous lifecycle rules as well as adding the new one.
@@ -230,11 +230,11 @@ b2 bucket create --lifecycle-rule '{"daysFromHidingToDeleting": 30, "daysFromUpl
 Create an application key with restricted access to a single bucket:
 
 ```sh
-b2 key create --bucket "luxor-subnet-backups" --namePrefix "folder/" "luxor-subnet-backups-key" listBuckets,listFiles,readFiles,writeFiles
+b2 key create --bucket "infinite-hashes-backups" --namePrefix "folder/" "infinite-hashes-backups-key" listBuckets,listFiles,readFiles,writeFiles
 ```
 
 Fill in `.env` file:
-- `BACKUP_B2_BUCKET=luxor-subnet-backups`
+- `BACKUP_B2_BUCKET=infinite-hashes-backups`
 - `BACKUP_B2_FOLDER=folder`
 - `BACKUP_B2_APPLICATION_KEY_ID=0012345abcdefgh0000000000`
 - `BACKUP_B2_APPLICATION_KEY=A001bcdefgHIJKLMNOPQRSTUxx11x22`

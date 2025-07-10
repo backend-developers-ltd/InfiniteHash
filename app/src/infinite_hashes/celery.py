@@ -10,9 +10,9 @@ from prometheus_client import Gauge, multiprocess
 
 from .settings import configure_structlog
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "luxor_subnet.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "infinite_hashes.settings")
 
-app = Celery("luxor_subnet")
+app = Celery("infinite_hashes")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.steps["worker"].add(DjangoStructLogInitStep)
 app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)

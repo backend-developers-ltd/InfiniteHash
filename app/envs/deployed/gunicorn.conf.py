@@ -12,7 +12,7 @@ if max_workers > 0:
 threads = env.int("GUNICORN_THREADS", 1)
 preload_app = env.bool("GUNICORN_PRELOAD_APP", True)
 bind = "unix:/var/run/gunicorn/gunicorn.sock"
-wsgi_app = "luxor_subnet.wsgi:application"
+wsgi_app = "infinite_hashes.wsgi:application"
 access_logfile = "-"
 
 

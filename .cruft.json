@@ -4,9 +4,9 @@
   "checkout": null,
   "context": {
     "cookiecutter": {
-      "repostory_name": "luxor-subnet",
-      "project_short_description": "Luxor Bittensor Subnet",
-      "django_project_name": "luxor_subnet",
+      "repostory_name": "infinite-hashes",
+      "project_short_description": "Infinite Hashes Bittensor Subnet",
+      "django_project_name": "infinite_hashes",
       "django_default_app_name": "validator",
       "monitoring": "y",
       "monitor_view_execution_time_in_djagno": "n",
@@ -47,8 +47,8 @@
       "nginx_tls_early_data_enabled": "n",
       "use_alpine_linux": "n",
       "aws_use_packer": "n",
-      "aws_project_name": "luxor-subnet",
-      "aws_infra_bucket": "luxor-subnet-noqfmo",
+      "aws_project_name": "infinite-hashes",
+      "aws_infra_bucket": "infinite-hashes-noqfmo",
       "aws_region": "us-east-1",
       "aws_ami_image": "*ubuntu-noble-24.04-amd64-minimal-*",
       "aws_ami_image_owner": "099720109477",

@@ -1,7 +1,7 @@
 # each of this vars can be overridden by adding ENVIRONMENT variable with name:
 # TF_VAR_var_name="value"
 
-name             = "luxor-subnet"
+name             = "infinite-hashes"
 region           = "us-east-1"
 env              = "prod"
 

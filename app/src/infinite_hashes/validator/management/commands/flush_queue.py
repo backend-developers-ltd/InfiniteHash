@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from luxor_subnet.celery import flush_tasks, get_num_tasks_in_queue
+from infinite_hashes.celery import flush_tasks, get_num_tasks_in_queue
 
 
 class Command(BaseCommand):

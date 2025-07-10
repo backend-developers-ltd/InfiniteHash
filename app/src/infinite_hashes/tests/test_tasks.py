@@ -3,8 +3,8 @@ import unittest.mock
 
 import pytest
 
-from luxor_subnet.validator.models import WeightsBatch
-from luxor_subnet.validator.tasks import (
+from infinite_hashes.validator.models import WeightsBatch
+from infinite_hashes.validator.tasks import (
     calculate_weights,
     set_weights,
 )

@@ -7,7 +7,7 @@ fi
 . .env
 
 if [[ "$DATABASE_URL" =~ "@db:" ]]; then
-  DOCKER_NETWORK=luxor-subnet_default
+  DOCKER_NETWORK=infinite-hashes_default
 else
   DOCKER_NETWORK=host
 fi

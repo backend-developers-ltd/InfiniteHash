@@ -15,7 +15,7 @@ for ip in ips:
     print("deploying to", ip)
     try:
         res = subprocess.Popen(
-            ["git", "push", f"root@{ip.strip()}:~/repos/luxor_subnet-central.git"],
+            ["git", "push", f"root@{ip.strip()}:~/repos/infinite_hashes-central.git"],
             env={
                 "GIT_SSH_COMMAND": "ssh -o ConnectTimeout=10  -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
             },

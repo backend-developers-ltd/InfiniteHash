@@ -8,5 +8,5 @@ APP_SUFFIX="-$1"
 
 APP_OWNER=$(aws sts get-caller-identity --region us-east-1 --query "Account" --output text)
 APP_REGION="us-east-1"
-APP_NAME="luxor-subnet${APP_SUFFIX}"
+APP_NAME="infinite-hashes${APP_SUFFIX}"
 CLOUDFRONT_BUCKET="${APP_NAME}-spa${APP_SUFFIX}"

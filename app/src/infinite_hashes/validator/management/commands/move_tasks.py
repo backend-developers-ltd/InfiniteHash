@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from luxor_subnet.celery import get_num_tasks_in_queue, move_tasks
+from infinite_hashes.celery import get_num_tasks_in_queue, move_tasks
 
 
 class Command(BaseCommand):

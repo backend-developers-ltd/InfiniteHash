@@ -1,5 +1,5 @@
 [project]
-name = "luxor-subnet"
+name = "infinite-hashes"
 requires-python = "==3.11.*"
 version = "0"
 dependencies = [

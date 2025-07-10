@@ -1,2 +1,2 @@
 region      = "us-east-1"
-name        = "luxor-subnet"
+name        = "infinite-hashes"

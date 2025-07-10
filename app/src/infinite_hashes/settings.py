@@ -1,5 +1,5 @@
 """
-Django settings for luxor_subnet project.
+Django settings for infinite_hashes project.
 """
 
 import datetime
@@ -72,7 +72,7 @@ INSTALLED_APPS = [
     "django_probes",
     "django_structlog",
     "constance",
-    "luxor_subnet.validator",
+    "infinite_hashes.validator",
 ]
 
 PROMETHEUS_EXPORT_MIGRATIONS = env.bool("PROMETHEUS_EXPORT_MIGRATIONS", default=True)
@@ -131,12 +131,12 @@ if CSP_ENABLED := env.bool("CSP_ENABLED", False):
     CSP_EXCLUDE_URL_PREFIXES = env.tuple("CSP_EXCLUDE_URL_PREFIXES", default=tuple())
 
 
-ROOT_URLCONF = "luxor_subnet.urls"
+ROOT_URLCONF = "infinite_hashes.urls"
 
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [root("luxor_subnet/templates")],
+        "DIRS": [root("infinite_hashes/templates")],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -149,7 +149,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "luxor_subnet.wsgi.application"
+WSGI_APPLICATION = "infinite_hashes.wsgi.application"
 
 DATABASES = {}
 if env("DATABASE_POOL_URL", default=""):  # DB transaction-based connection pool, such as one provided PgBouncer
@@ -239,14 +239,14 @@ CELERY_MESSAGE_COMPRESSION = "gzip"  # result compression
 CELERY_SEND_EVENTS = True  # needed for worker monitoring
 CELERY_BEAT_SCHEDULE = {  # type: ignore
     "calculate_weights": {
-        "task": "luxor_subnet.validator.tasks.calculate_weights",
+        "task": "infinite_hashes.validator.tasks.calculate_weights",
         "schedule": datetime.timedelta(minutes=1),
         "options": {
             "expires": datetime.timedelta(minutes=1).total_seconds(),
         },
     },
     "set_weights": {
-        "task": "luxor_subnet.validator.tasks.set_weights",
+        "task": "infinite_hashes.validator.tasks.set_weights",
         "schedule": datetime.timedelta(minutes=1),
         "options": {
             "expires": datetime.timedelta(minutes=1).total_seconds(),

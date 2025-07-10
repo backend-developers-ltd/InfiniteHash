@@ -18,9 +18,9 @@ from celery.utils.log import get_task_logger
 from django.conf import settings
 from django.db import transaction
 
-from luxor_subnet.celery import app
-from luxor_subnet.validator.locks import Locked, LockType, get_advisory_lock
-from luxor_subnet.validator.models import WeightsBatch
+from infinite_hashes.celery import app
+from infinite_hashes.validator.locks import Locked, LockType, get_advisory_lock
+from infinite_hashes.validator.models import WeightsBatch
 
 WEIGHT_SETTING_ATTEMPTS = 100
 WEIGHT_SETTING_FAILURE_BACKOFF = 5

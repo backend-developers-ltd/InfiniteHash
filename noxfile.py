@@ -159,6 +159,6 @@ def test(session):
             "-vv",
             "-n",
             "auto",
-            "luxor_subnet",
+            "infinite_hashes",
             *session.posargs,
         )
