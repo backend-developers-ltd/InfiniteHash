@@ -1,6 +1,49 @@
-# infinite-hashes
+# InfiniteHash Subnet (SN89)
 
-Infinite Hashes Bittensor Subnet
+# Decentralized Bitcoin Mining & Lightning Infrastructure
+
+Track Pool Metrics: infinitehash.xyz
+
+# What is InfiniteHash?
+
+InfiniteHash Subnet (SN89) is revolutionizing Bitcoin mining by combining decentralized mining operations with cutting-edge Lightning Network infrastructure. We're building a truly decentralized and more democratic Bitcoin mining pool AND in parallel the foundation for Bitcoin to become the preferred payment layer for the emerging AI agent economy via our enterprise quality Lightning network.
+
+# How It Works
+
+Phase 1 (launch): Market Discovery
+- Miners contribute hashrate and earn Alpha tokens proportional to contribution
+- All mined Bitcoin is converted to Alpha and burned, creating continuous buying pressure
+- Market discovers sustainable Alpha-to-hashrate conversion rates
+
+Phase 2 (2-4 weeks after launch): Sustainable Economics
+- Minimum hashrate threshold for base rewards - no incentive for over committing hash
+- Alpha denominated hashprice designed to exceed BTC hashprice avlb in market, after pool fees. Min hashrate threshold adjusted routinely
+- Miners also run Lightning nodes and compete (creating uid curve) on quality for incremental rewards beyond hashrate.
+
+# Getting Started
+
+# For Miners
+
+Requirements / Getting Started (V1)
+
+- Bitcoin ASIC miners
+- Bittensor baseminer - no SN specific configurations. Validators score your hash contribution based on your hotkey in the ASIC workerID
+- Point Your ASICs to Our Pool
+
+
+Pool URL: stratum+tcp://btc.global.luxor.tech:700 (or choose a specific regional stratum if desired).
+
+Configure Worker Names
+  - Format: infinite.YOUR_HOTKEY.your_workerID
+  - YOUR_HOTKEY: Your Bittensor wallet hotkey
+  - your_workerID: Any identifier you choose for your ASIC fleet
+
+Examples:
+infinite.5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY.1
+infinite.5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY.warehouse_a
+
+
+# Validators 
 
 - - -
 
