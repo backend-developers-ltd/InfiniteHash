@@ -15,8 +15,8 @@ OPTIONS="-A infinite_hashes -E -l DEBUG --pidfile=/var/run/celery-%n.pid --logfi
 # Since celery runs in root of the docker, we also need to allow it to.
 # shellcheck disable=2086
 C_FORCE_ROOT=1 nice celery multi start $WORKERS $OPTIONS \
-    -Q:master celery --autoscale:master=$CELERY_MASTER_CONCURRENCY,0 \
-    -Q:worker worker --autoscale:worker=$CELERY_WORKER_CONCURRENCY,0
+    -Q:master celery --autoscale:master=$CELERY_MASTER_CONCURRENCY,$CELERY_MASTER_CONCURRENCY --max-tasks-per-child:master=10 \
+    -Q:worker worker --autoscale:worker=$CELERY_WORKER_CONCURRENCY,$CELERY_MASTER_CONCURRENCY --max-tasks-per-child:worker=10
 
 # shellcheck disable=2064
 trap "celery multi stop $WORKERS $OPTIONS; exit 0" INT TERM
