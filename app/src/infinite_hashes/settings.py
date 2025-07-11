@@ -307,7 +307,7 @@ LOGGING = {
         },
         "celery.task": {
             "handlers": ["console"],
-            "level": "INFO",
+            "level": "DEBUG",
         },
         "celery.redirected": {
             "handlers": ["console"],

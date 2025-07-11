@@ -91,7 +91,7 @@ async def calculate_weights_async(
 
         if blocks_left > 0:
             logger.debug(
-                "Too early to set weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
+                "Too early to calculate weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
                 epoch.start,
                 block.number,
                 round((block.number - epoch.start) / subnet.tempo, 2),
@@ -101,7 +101,7 @@ async def calculate_weights_async(
 
         if abs(blocks_left) >= settings.VALIDATION_THRESHOLD * subnet.tempo:
             logger.error(
-                "Too late to set weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
+                "Too late to calculate weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
                 epoch.start,
                 block.number,
                 round((block.number - epoch.start) / subnet.tempo, 2),
