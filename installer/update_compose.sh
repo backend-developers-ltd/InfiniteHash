@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Default values for arguments
 ENV_NAME="${1:-prod}"
-WORKING_DIRECTORY="${2:-$HOME/luxor-validator/}"
+WORKING_DIRECTORY="${2:-$HOME/InfiniteHash-validator/}"
 
 mkdir -p "${WORKING_DIRECTORY}"
 
@@ -13,10 +13,10 @@ mkdir -p "${WORKING_DIRECTORY}"
 cd "${WORKING_DIRECTORY}"
 
 # Hardcoded GitHub raw URL
-GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/luxor-subnet/refs/heads"
+GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
 
 # Use a fixed temporary file for the remote docker-compose.yml
-TEMP_FILE="/tmp/luxor_compose_update.yml"
+TEMP_FILE="/tmp/InfiniteHash_compose_update.yml"
 curl -s "${GITHUB_URL}/deploy-config-${ENV_NAME}/envs/deployed/docker-compose.yml" > "${TEMP_FILE}"
 
 # Path to the local docker-compose.yml file
