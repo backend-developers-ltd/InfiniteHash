@@ -83,19 +83,29 @@ async def calculate_weights_async(
         )
 
         if await batches.acount():
+            logger.debug("Already have weights for this epoch: %s", ','.join(str(b.id) async for b in batches))
             return
 
         validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet.tempo)
         blocks_left = validation_start_block_number - block.number
 
         if blocks_left > 0:
+            logger.debug(
+                "Too early to set weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
+                epoch.start,
+                block.number,
+                round((block.number - epoch.start) / subnet.tempo, 2),
+                subnet.tempo,
+            )
             return
 
         if abs(blocks_left) >= settings.VALIDATION_THRESHOLD * subnet.tempo:
             logger.error(
-                "Too late to set weights. Epoch start block: #%s, current block: #%s",
+                "Too late to set weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
                 epoch.start,
                 block.number,
+                round((block.number - epoch.start) / subnet.tempo, 2),
+                subnet.tempo,
             )
             return
 
@@ -109,10 +119,19 @@ async def calculate_weights_async(
         )
         weights = {hotkey: sum(hotkey_hashrates) for hotkey, hotkey_hashrates in hashrates.items()}
 
-        await WeightsBatch.objects.acreate(
+        batch = await WeightsBatch.objects.acreate(
             block=validation_start_block.number,
             epoch_start=epoch.start,
             weights=weights,
+        )
+
+        logger.debug(
+            "Weight batch saved: %s. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
+            batch.id,
+            epoch.start,
+            block.number,
+            round((block.number - epoch.start) / subnet.tempo, 2),
+            subnet.tempo,
         )
 
         return weights
@@ -200,6 +219,7 @@ async def set_weights_async() -> bool:
     ]
 
     if not batches:
+        logger.debug("No batches to score")
         return False
 
     async with turbobt.Bittensor(
