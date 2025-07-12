@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Default values for arguments
 ENV_NAME="${1:-prod}"
-WORKING_DIRECTORY="${2:-~/InfiniteHash-validator/}"
+WORKING_DIRECTORY=${2:-~/InfiniteHash-validator/}
 
 # Ensure the working directory exists
 mkdir -p "${WORKING_DIRECTORY}"
