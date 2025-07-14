@@ -34,7 +34,7 @@ Requirements / Getting Started (V1)
 Pool URL: stratum+tcp://btc.global.luxor.tech:700 (or choose a specific regional stratum if desired).
 
 Configure Worker Names
-  - Format: infinite.YOUR_HOTKEY.your_workerID
+  - Format: `infinite.YOUR_HOTKEY.your_workerID`
   - YOUR_HOTKEY: Your Bittensor wallet hotkey
   - your_workerID: Any identifier you choose for your ASIC fleet
 
