@@ -15,10 +15,10 @@ Phase 1 (launch): Market Discovery
 - All mined Bitcoin is converted to Alpha and burned, creating continuous buying pressure
 - Market discovers sustainable Alpha-to-hashrate conversion rates
 
-Phase 2 (2-4 weeks after launch): Sustainable Economics
-- Minimum hashrate threshold for base rewards - no incentive for over committing hash
-- Alpha denominated hashprice designed to exceed BTC hashprice avlb in market, after pool fees. Min hashrate threshold adjusted routinely
-- Miners also run Lightning nodes and compete (creating uid curve) on quality for incremental rewards beyond hashrate.
+Phase 2: Sustainable Economics
+- Minimum hashrate threshold for base rewards - no incentive for overcommitting hash
+- Alpha denominated hashprice designed to exceed BTC hashprice available in market, after pool fees. Min hashrate threshold adjusted routinely
+- Miners also run Lightning nodes and compete (creating uid curve) on quality for incremental rewards beyond hashrate
 
 # Getting Started
 
