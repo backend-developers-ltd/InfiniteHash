@@ -39,9 +39,10 @@ Configure Worker Names
   - your_workerID: Any identifier you choose for your ASIC fleet
 
 Examples:
+```
 infinite.5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY.1
 infinite.5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY.warehouse_a
-
+```
 
 # Validators 
 
