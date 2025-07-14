@@ -2,7 +2,7 @@
 
 # Decentralized Bitcoin Mining & Lightning Infrastructure
 
-Track Pool Metrics: infinitehash.xyz
+Track [Pool Metrics](https://infinitehash.xyz)
 
 # What is InfiniteHash?
 
