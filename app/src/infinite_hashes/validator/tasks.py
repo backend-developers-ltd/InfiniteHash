@@ -87,7 +87,8 @@ async def calculate_weights_async(
             logger.debug("Already have weights for this epoch: %s", ",".join(ids))
             return
 
-        validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet.tempo)
+        subnet_tempo = subnet.tempo + 1
+        validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet_tempo)
         blocks_left = validation_start_block_number - block.number
 
         if blocks_left > 0:
@@ -95,18 +96,18 @@ async def calculate_weights_async(
                 "Too early to calculate weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
                 epoch.start,
                 block.number,
-                round((block.number - epoch.start) / subnet.tempo, 2),
-                subnet.tempo,
+                round((block.number - epoch.start) / subnet_tempo, 2),
+                subnet_tempo,
             )
             return
 
-        if abs(blocks_left) >= settings.VALIDATION_THRESHOLD * subnet.tempo:
+        if abs(blocks_left) >= settings.VALIDATION_THRESHOLD * subnet_tempo:
             logger.error(
                 "Too late to calculate weights. Epoch start block: #%s, current block: #%s (=start + %s*%s)",
                 epoch.start,
                 block.number,
-                round((block.number - epoch.start) / subnet.tempo, 2),
-                subnet.tempo,
+                round((block.number - epoch.start) / subnet_tempo, 2),
+                subnet_tempo,
             )
             return
 
@@ -131,8 +132,8 @@ async def calculate_weights_async(
             batch.id,
             epoch.start,
             block.number,
-            round((block.number - epoch.start) / subnet.tempo, 2),
-            subnet.tempo,
+            round((block.number - epoch.start) / subnet_tempo, 2),
+            subnet_tempo,
         )
 
         return weights
@@ -267,7 +268,8 @@ async def set_weights_async() -> bool:
             ", ".join(str(batch.id) for batch in batches),
         )
 
-        validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet.tempo)
+        subnet_tempo = subnet.tempo + 1
+        validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet_tempo)
         validation_start_block = await bittensor.block(validation_start_block_number).get()
 
         async with validation_start_block:
