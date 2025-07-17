@@ -27,6 +27,7 @@ services:
 
   app:
     image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
+    pull_policy: always
     healthcheck:
       test: ["CMD", "./healthcheck.py", "/var/run/gunicorn/gunicorn.sock"]
     init: true
@@ -57,6 +58,7 @@ services:
 
   celery-worker:
     image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
+    pull_policy: always
     init: true
     healthcheck:
       test: celery -A infinite_hashes status > /dev/null || exit 1
@@ -87,6 +89,7 @@ services:
 
   celery-beat:
     image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
+    pull_policy: always
     init: true
     restart: unless-stopped
     env_file: ./.env
