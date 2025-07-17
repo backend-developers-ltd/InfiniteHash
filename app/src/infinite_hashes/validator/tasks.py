@@ -84,7 +84,7 @@ async def calculate_weights_async(
 
         if await batches.acount():
             ids = [str(b.id) async for b in batches]
-            logger.debug("Already have weights for this epoch: %s", ','.join(ids))
+            logger.debug("Already have weights for this epoch: %s", ",".join(ids))
             return
 
         validation_start_block_number = epoch.start + int(settings.VALIDATION_OFFSET * subnet.tempo)

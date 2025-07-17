@@ -4,14 +4,13 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('validator', '0001_initial'),
+        ("validator", "0001_initial"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='weightsbatch',
-            options={'verbose_name_plural': 'Weights Batches'},
+            name="weightsbatch",
+            options={"verbose_name_plural": "Weights Batches"},
         ),
     ]
