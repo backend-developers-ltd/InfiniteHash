@@ -27,6 +27,6 @@ tail -f /var/log/celery-*.log &
 while true; do
     sleep 120
     echo "Checking celery status"
-    celery -A project status -t 30 > /dev/null 2>&1 || exit 1
+    celery -A infinite_hashes status -t 30 > /dev/null 2>&1 || exit 1
     echo "Celery status OK"
 done
