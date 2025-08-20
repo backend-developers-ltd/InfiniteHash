@@ -73,7 +73,7 @@ async def calculate_weights_async(
 ):
     # Determine scoring window based on cutoff date
     if window is None:
-        current_date = datetime.datetime.now().date()
+        current_date = datetime.date.today()
 
         if current_date >= datetime.date(2025, 8, 25):
             window = datetime.timedelta(hours=6)
