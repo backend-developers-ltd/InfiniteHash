@@ -1,6 +1,7 @@
 import datetime
 import unittest.mock
 
+import freezegun
 import pytest
 
 from infinite_hashes.validator.models import WeightsBatch
@@ -11,6 +12,7 @@ from infinite_hashes.validator.tasks import (
 
 
 @pytest.mark.django_db
+@freezegun.freeze_time("2025-08-25 10:00:00")
 def test_calculate_weights(bittensor, luxor):
     bittensor.head.get = unittest.mock.AsyncMock(
         return_value=unittest.mock.Mock(
@@ -21,14 +23,14 @@ def test_calculate_weights(bittensor, luxor):
         return_value=unittest.mock.Mock(
             number=1007,
             get_timestamp=unittest.mock.AsyncMock(
-                return_value=datetime.datetime(2025, 7, 2, 10, 0, 0),
+                return_value=datetime.datetime(2025, 8, 25, 10, 0, 0, 1000, tzinfo=datetime.UTC),
             ),
         ),
     )
     bittensor.subnet.return_value.epoch.return_value = range(719, 1080)
 
     assert calculate_weights() == {
-        "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 95298044615003,
+        "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 98411991857354,
     }
 
     assert WeightsBatch.objects.count() == 1
@@ -38,7 +40,7 @@ def test_calculate_weights(bittensor, luxor):
     assert batch.epoch_start == 719
     assert batch.block == 1007
     assert batch.weights == {
-        "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 95298044615003,
+        "5E4DGEqvwagmcL7VxV5Ndj8r7QhradEsFLGqT14qVWhGW551": 98411991857354,
     }
 
 

@@ -69,8 +69,17 @@ def demo_task(x, y):
 
 
 async def calculate_weights_async(
-    window: datetime.timedelta = datetime.timedelta(days=1),
+    window: datetime.timedelta = None,
 ):
+    # Determine scoring window based on cutoff date
+    if window is None:
+        current_date = datetime.date.today()
+
+        if current_date >= datetime.date(2025, 8, 25):
+            window = datetime.timedelta(hours=6)
+        else:
+            window = datetime.timedelta(days=1)
+
     async with turbobt.Bittensor(settings.BITTENSOR_NETWORK) as bittensor:
         block, subnet = await asyncio.gather(
             bittensor.head.get(),
