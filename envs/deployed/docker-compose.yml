@@ -1,4 +1,3 @@
-# 2025-08-22T12:32:12.834357+00:00
 services:
   redis:
     image: mirror.gcr.io/valkey/valkey:8.1-alpine
@@ -27,7 +26,7 @@ services:
       <<: *logging
 
   app:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:0cdfa6b3856b97d5c6f14ccd9752798b0868f039aa7d433ce4cfa1233ac5e804
     pull_policy: always
     healthcheck:
       test: ["CMD", "./healthcheck.py", "/var/run/gunicorn/gunicorn.sock"]
@@ -58,7 +57,7 @@ services:
       <<: *logging
 
   celery-worker:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:0cdfa6b3856b97d5c6f14ccd9752798b0868f039aa7d433ce4cfa1233ac5e804
     pull_policy: always
     init: true
     healthcheck:
@@ -89,7 +88,7 @@ services:
       <<: *logging
 
   celery-beat:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:0cdfa6b3856b97d5c6f14ccd9752798b0868f039aa7d433ce4cfa1233ac5e804
     pull_policy: always
     init: true
     restart: unless-stopped
