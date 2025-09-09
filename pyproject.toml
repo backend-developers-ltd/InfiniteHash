@@ -24,7 +24,7 @@ dependencies = [
     "prometheus-client~=0.17.0",
     "django-prometheus==2.3.1",
     "django-business-metrics>=1.0.1,<2",
-    "turbobt~=0.0.10",
+    "turbobt~=0.2.4",
     "httpx~=0.26",
     "tenacity~=9.1.2",
 ]
