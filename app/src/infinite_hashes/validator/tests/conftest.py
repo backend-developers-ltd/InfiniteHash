@@ -3,7 +3,10 @@ from collections.abc import Generator
 
 import httpx
 import pytest
+import pytest_asyncio
 from django.conf import settings
+
+from infinite_hashes.testutils.unit.subtensor import SubtensorSimulator
 
 
 @pytest.fixture
@@ -44,6 +47,12 @@ def bittensor():
         yield mocked
 
 
+@pytest_asyncio.fixture(scope="session")
+async def sim():
+    async with SubtensorSimulator() as s:
+        yield s
+
+
 @pytest.fixture
 def luxor(httpx_mock):
     httpx_mock.add_response(
@@ -58,7 +67,7 @@ def luxor(httpx_mock):
             },
         ),
         match_headers={
-            "Authorization": settings.LUXOR_API_KEY,
+            "Authorization": settings.LUXOR_API_KEY_MECHANISM_0,
         },
         json={
             "currency_type": "BTC",

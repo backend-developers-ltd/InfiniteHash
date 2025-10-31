@@ -3,8 +3,8 @@ from django.contrib.admin.sites import site
 from django.http import HttpResponse
 from django.urls import include, path
 
-from .validator.business_metrics import metrics_manager
-from .validator.metrics import metrics_view
+from infinite_hashes.validator.business_metrics import metrics_manager
+from infinite_hashes.validator.metrics import metrics_view
 
 urlpatterns = [
     path("alive/", lambda _: HttpResponse(b"ok")),

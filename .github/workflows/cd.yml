@@ -23,21 +23,51 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine deployment target
+        run: |
+          set -e
+          BRANCH="${GITHUB_REF_NAME}"
+          if [[ "$BRANCH" == deploy-config-* ]]; then
+            ENVIRONMENT="${BRANCH#deploy-config-}"
+            SKIP_IMAGE_BUILD=1
+            SKIP_AWS_DEPLOY=1
+          elif [[ "$BRANCH" == deploy-build-* ]]; then
+            ENVIRONMENT="${BRANCH#deploy-build-}"
+            SKIP_IMAGE_BUILD=0
+            SKIP_AWS_DEPLOY=1
+          elif [[ "$BRANCH" == deploy-* ]]; then
+            ENVIRONMENT="${BRANCH#deploy-}"
+            SKIP_IMAGE_BUILD=0
+            SKIP_AWS_DEPLOY=0
+          else
+            echo "Unsupported deployment branch: ${BRANCH}" >&2
+            exit 1
+          fi
+          echo "ENVIRONMENT=${ENVIRONMENT}" >> "$GITHUB_ENV"
+          echo "SKIP_IMAGE_BUILD=${SKIP_IMAGE_BUILD}" >> "$GITHUB_ENV"
+          echo "SKIP_AWS_DEPLOY=${SKIP_AWS_DEPLOY}" >> "$GITHUB_ENV"
+          echo "TAG_PREFIX=deployed-${BRANCH#deploy-}" >> "$GITHUB_ENV"
+
       - name: Build & Push Docker Image
         run: |
           set -e
-          export ENV=${GITHUB_REF_NAME:14}
-          docker build --platform linux/amd64 -t ghcr.io/backend-developers-ltd/infinitehash-subnet-${ENV}:v0-latest -f app/envs/deployed/Dockerfile --push .
+          if [[ "${SKIP_IMAGE_BUILD}" == "0" ]]; then
+            docker build --platform linux/amd64 \
+              -t ghcr.io/backend-developers-ltd/infinitehash-subnet-${ENVIRONMENT}:v0-latest \
+              -f app/envs/deployed/Dockerfile \
+              --push .
+          else
+            echo "Skipping image build for branch ${GITHUB_REF_NAME}"
+          fi
 
       - name: deploy to aws
         run: |
           set -e
-          export ENVIRONMENT=${GITHUB_REF_NAME:7}
-          if [[ ! "$GITHUB_REF_NAME" =~ ^deploy-config- ]]; then
-            ./deploy-to-aws.sh $ENVIRONMENT
+          if [[ "${SKIP_AWS_DEPLOY}" == "0" ]]; then
+            ./deploy-to-aws.sh "${ENVIRONMENT}"
           else
-            echo "Skipping deploy-to-aws.sh for deploy-config-* branch"
+            echo "Skipping deploy-to-aws.sh for branch ${GITHUB_REF_NAME}"
           fi
-          export TAG=deployed-${ENVIRONMENT}-`date -u +"%Y-%m-%dT%H.%M.%S"`
+          export TAG=${TAG_PREFIX}-$(date -u +"%Y-%m-%dT%H.%M.%S")
           git tag $TAG
           git push origin $TAG
