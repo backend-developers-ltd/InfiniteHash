@@ -77,6 +77,8 @@ INSTALLED_APPS = [
 
 PROMETHEUS_EXPORT_MIGRATIONS = env.bool("PROMETHEUS_EXPORT_MIGRATIONS", default=True)
 
+AGGREGATED_DELIVERIES = True
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -160,6 +162,14 @@ if env("DATABASE_POOL_URL", default=""):  # DB transaction-based connection pool
 elif env("DATABASE_URL"):
     DATABASES["default"] = env.db_url("DATABASE_URL")
 
+VALIDATOR_DB_SCHEMA = env("VALIDATOR_DB_SCHEMA", default="")
+if VALIDATOR_DB_SCHEMA:
+    DATABASES.setdefault("default", {})
+    options = DATABASES["default"].setdefault("OPTIONS", {})
+    existing = options.get("options", "").strip()
+    search_path_opt = f"-c search_path={VALIDATOR_DB_SCHEMA}"
+    options["options"] = f"{existing} {search_path_opt}".strip()
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -217,13 +227,37 @@ BITTENSOR_WALLET_HOTKEY_NAME = env.str("BITTENSOR_WALLET_HOTKEY_NAME")
 BITTENSOR_WALLET_NAME = env.str("BITTENSOR_WALLET_NAME")
 
 
-LUXOR_API_KEY = env.str("LUXOR_API_KEY", "api-acdcc0277bbb75adeba9e7b03c8bf968")
-LUXOR_SUBACCOUNT_NAME = "infinite"
+LUXOR_API_URL = env.str("LUXOR_API_URL", default="https://app.luxor.tech/api")
+
+# Luxor API keys per mechanism
+LUXOR_API_KEY_MECHANISM_0 = env.str(
+    "LUXOR_API_KEY_MECHANISM_0", default=env.str("LUXOR_API_KEY", "api-acdcc0277bbb75adeba9e7b03c8bf968")
+)
+LUXOR_API_KEY_MECHANISM_1 = env.str(
+    "LUXOR_API_KEY_MECHANISM_1", default=env.str("LUXOR_API_KEY", "api-acdcc0277bbb75adeba9e7b03c8bf968")
+)
+
+# Luxor pool subaccounts for different mechanisms
+LUXOR_SUBACCOUNT_NAME = "infinite"  # legacy mechanism 0
+LUXOR_SUBACCOUNT_NAME_MECHANISM_0 = env.str("LUXOR_SUBACCOUNT_NAME_MECHANISM_0", default="infinite")
+LUXOR_SUBACCOUNT_NAME_MECHANISM_1 = env.str("LUXOR_SUBACCOUNT_NAME_MECHANISM_1", default="sn89auction")
+
+# Map subaccount names to API keys
+LUXOR_API_KEY_BY_SUBACCOUNT = {
+    LUXOR_SUBACCOUNT_NAME: LUXOR_API_KEY_MECHANISM_0,  # legacy points to mechanism 0
+    LUXOR_SUBACCOUNT_NAME_MECHANISM_0: LUXOR_API_KEY_MECHANISM_0,
+    LUXOR_SUBACCOUNT_NAME_MECHANISM_1: LUXOR_API_KEY_MECHANISM_1,
+}
 
 
 VALIDATION_OFFSET = 0.8
 VALIDATION_THRESHOLD = 0.05
 
+# Auctions configuration
+# Window size uses six 10-minute windows per epoch (6 * 60 blocks)
+AUCTION_WINDOW_BLOCKS = 60
+AUCTION_ILP_CBC_MAX_NODES = 100_000
+MAX_PRICE_MULTIPLIER = 1.05
 
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
 CONSTANCE_CONFIG = {  # type: ignore
@@ -238,6 +272,7 @@ CELERY_COMPRESSION = "gzip"  # task compression
 CELERY_MESSAGE_COMPRESSION = "gzip"  # result compression
 CELERY_SEND_EVENTS = True  # needed for worker monitoring
 CELERY_BEAT_SCHEDULE = {  # type: ignore
+    # Legacy mechanism 0 (weight-based)
     "calculate_weights": {
         "task": "infinite_hashes.validator.tasks.calculate_weights",
         "schedule": datetime.timedelta(minutes=1),
@@ -252,12 +287,89 @@ CELERY_BEAT_SCHEDULE = {  # type: ignore
             "expires": datetime.timedelta(minutes=1).total_seconds(),
         },
     },
+    # Auction mechanism 1
+    "process_auctions": {
+        "task": "infinite_hashes.validator.tasks.process_auctions",
+        "schedule": datetime.timedelta(minutes=5),
+        "options": {
+            "expires": datetime.timedelta(minutes=5).total_seconds(),
+        },
+    },
+    "calculate_auction_weights": {
+        "task": "infinite_hashes.validator.tasks.calculate_auction_weights",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
+    "set_auction_weights": {
+        "task": "infinite_hashes.validator.tasks.set_auction_weights",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
+    # Price consensus
+    "scrape_metrics": {
+        "task": "infinite_hashes.validator.tasks.scrape_metrics",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
+    "publish_local_commitment": {
+        "task": "infinite_hashes.validator.tasks.publish_local_commitment",
+        "schedule": datetime.timedelta(minutes=1),
+        "options": {
+            "expires": datetime.timedelta(minutes=1).total_seconds(),
+        },
+    },
+    # Luxor hashrate scraper
+    "scrape_luxor": {
+        "task": "infinite_hashes.validator.tasks.scrape_luxor",
+        "schedule": datetime.timedelta(seconds=30),
+        "options": {
+            "expires": datetime.timedelta(seconds=30).total_seconds(),
+        },
+    },
+    "cleanup_old_luxor_snapshots": {
+        "task": "infinite_hashes.validator.tasks.cleanup_old_luxor_snapshots",
+        "schedule": datetime.timedelta(hours=1),
+        "options": {
+            "expires": datetime.timedelta(hours=1).total_seconds(),
+        },
+    },
 }
 CELERY_TASK_CREATE_MISSING_QUEUES = False
 CELERY_TASK_QUEUES = (Queue("celery"), Queue("worker"), Queue("dead_letter"))
 CELERY_TASK_DEFAULT_EXCHANGE = "celery"
 CELERY_TASK_DEFAULT_ROUTING_KEY = "celery"
 CELERY_TASK_DEFAULT_RATE_LIMIT = "1/s"
+
+# Price consensus configuration
+PRICE_METRICS = ["TAO_USDC", "ALPHA_TAO", "HASHP_USDC"]
+PRICE_GAMMA = 0.67
+
+# Per-metric settings: source priority, max age, and other params
+PRICE_SOURCES = {
+    "TAO_USDC": {
+        "priority": ["taostats"],
+        "max_age_sec": 300,
+    },
+    "ALPHA_TAO": {
+        "priority": ["taostats"],
+        "max_age_sec": 300,
+        "dtao_netuid": 89,
+    },
+    "HASHP_USDC": {
+        "priority": ["hashrateindex"],
+        "max_age_sec": 600,
+        "hashunit": "PHS",
+    },
+}
+
+# External API keys
+TAOSTATS_API_KEY = env.str("TAOSTATS_API_KEY", default="")
 CELERY_TASK_ANNOTATIONS = {"*": {"acks_late": True, "reject_on_worker_lost": True}}
 CELERY_TASK_ROUTES = {"*": {"queue": "celery"}}
 CELERY_TASK_TIME_LIMIT = int(timedelta(minutes=5).total_seconds())

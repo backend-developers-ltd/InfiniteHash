@@ -1,0 +1,21 @@
+{
+  "budget_frac": 0.2,
+  "entries": [
+    {
+      "hashrate": "16.628",
+      "hotkey": "5DPLF2RfLUY9t1FVmMaijBRdVumMgfF3vJtpeCCHP1Jwfszk",
+      "price": 1040000000000000000
+    },
+    {
+      "hashrate": "29.581",
+      "hotkey": "5DiMs3ASRrZ7yt5o71tP93PtkZQCKJVLLx5qdRQTnbqvWEfF",
+      "price": 1030000000000000000
+    },
+    {
+      "hashrate": "0.090185",
+      "hotkey": "5EvtuVCesCH5JCeAhzfMY5rnpkMntANPBK9q3jjUoG32UqV8",
+      "price": 1050000000000000000
+    }
+  ],
+  "total": "46.299185"
+}

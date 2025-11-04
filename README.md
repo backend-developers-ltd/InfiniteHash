@@ -48,6 +48,23 @@ infinite.5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY.warehouse_a
 
 - - -
 
+For a detailed description of the auction-based incentive mechanism and validator responsibilities, see `docs/subnet_auction_incentive_system.md`.
+
+## Deployment workflow
+
+1. **Build container**  
+   Push to `deploy-build-prod`. CI builds and pushes `ghcr.io/backend-developers-ltd/infinitehash-subnet-prod:v0-latest`.
+
+2. **Update compose digest**  
+   ```sh
+   python tools/update_compose_digest.py
+   ```
+   The script fetches the latest manifest digest for `v0-latest` and rewrites `envs/deployed/docker-compose.yml`.
+
+3. **Publish configuration**  
+   Commit the compose change and push to `deploy-config-prod`. Validator nodes (via the cron installed by `installer/install.sh`) pull this branch and restart services with the pinned digest.
+
+
 # Base requirements
 
 - docker with [compose plugin](https://docs.docker.com/compose/install/linux/)
