@@ -869,7 +869,7 @@ async def calculate_auction_weights_async():
 def calculate_auction_weights(*, event_loop: Any = None):
     with transaction.atomic():
         try:
-            get_advisory_lock(LockType.VALIDATION_SCHEDULING)
+            get_advisory_lock(LockType.AUCTION_VALIDATION_SCHEDULING)
         except Locked:
             logger.debug("Another thread already calculating auction weights")
             return
@@ -1004,7 +1004,7 @@ async def set_auction_weights_async() -> bool:
 def set_auction_weights(*, event_loop: Any = None) -> bool:
     with transaction.atomic():
         try:
-            get_advisory_lock(LockType.WEIGHT_SETTING)
+            get_advisory_lock(LockType.AUCTION_WEIGHT_SETTING)
         except Locked:
             logger.debug("Another thread already setting auction weights")
             return False
