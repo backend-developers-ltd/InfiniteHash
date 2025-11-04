@@ -96,9 +96,9 @@ def simulator_process(ready_event: mp.Event, stop_event: mp.Event) -> None:
             await asyncio.to_thread(stop_event.wait)
             shutdown.set()
 
-        SIM_HOST = "127.0.0.1"
-        SIM_HTTP_PORT = 8090
-        SIM_RPC_PORT = 9944
+        SIM_HOST = os.environ.get("SIM_HOST", "127.0.0.1")
+        SIM_HTTP_PORT = int(os.environ.get("SIM_HTTP_PORT", 8090))
+        SIM_RPC_PORT = int(os.environ.get("SIM_RPC_PORT", 9944))
 
         http_task = asyncio.create_task(run_http_server(SIM_HOST, SIM_HTTP_PORT, state, shutdown))
         rpc_task = asyncio.create_task(run_rpc_server(SIM_HOST, SIM_RPC_PORT, state, shutdown))

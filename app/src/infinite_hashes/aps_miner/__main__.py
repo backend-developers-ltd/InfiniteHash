@@ -5,6 +5,7 @@ Usage:
     python -m infinite_hashes.aps_miner config.toml
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ structlog.configure(
         structlog.dev.set_exc_info,
         structlog.processors.JSONRenderer(),
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging_level=20),  # INFO
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
     cache_logger_on_first_use=False,
