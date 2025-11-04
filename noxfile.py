@@ -133,7 +133,7 @@ def lint(session):
     """Run linters in readonly mode."""
     install(session, "lint")
     session.run("ruff", "check", "--diff", "--unsafe-fixes", ".")
-    session.run("codespell", ".")
+    session.run("codespell", "--ignore-words-list=THS,fulfilment", ".")
     run_shellcheck(session, mode="check")
     run_readable(session, mode="check")
     session.run("ruff", "format", "--diff", ".")
@@ -160,5 +160,17 @@ def test(session):
             "-n",
             "auto",
             "infinite_hashes",
+            *session.posargs,
+        )
+        session.run(
+            "pytest",
+            "-W",
+            "ignore::DeprecationWarning",
+            "-s",
+            "-x",
+            "-vv",
+            "-n",
+            "0",  # override xdist to single worker
+            "tests/integration",
             *session.posargs,
         )

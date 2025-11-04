@@ -24,9 +24,16 @@ dependencies = [
     "prometheus-client~=0.17.0",
     "django-prometheus==2.3.1",
     "django-business-metrics>=1.0.1,<2",
-    "turbobt~=0.2.4",
+    "turbobt~=0.3.0",
     "httpx~=0.26",
     "tenacity~=9.1.2",
+    "pydantic>=2.6",
+    "pulp>=3.2.2",
+    "scalecodec>=1.2.11",
+    "remote-pdb>=2.1.0",
+    "apscheduler>=3.11.0",
+    "tomli>=2.2.1",
+    "tomli-w>=1.2.0",
 ]
 
 [build-system]
@@ -42,6 +49,8 @@ test = [
     'pytest-django',
     'pytest-xdist',
     'pytest_httpx',
+    'pytest-asyncio',
+    'pytest-cov',
     'ipdb',
     'freezegun',
 ]
@@ -79,6 +88,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "**/test*/**.py" = ["D", "F403", "F405", "S106", "S311"]
+
+[tool.pytest.ini_options]
+# DO NOT display logs during test execution
+log_cli = false
+# Show native Python traceback (most concise), hide all captured output
+addopts = "--tb=native -v --show-capture=no"
 
 [tool.codespell]
 skip = '*.min.js,*.lock,*/monitoring_certs/*'

@@ -1,0 +1,28 @@
+# InfiniteHash Miner Configuration
+
+[bittensor]
+# Bittensor network to connect to
+network = "finney"
+# Network UID for the subnet
+netuid = 42
+
+[wallet]
+# Wallet name
+name = "default"
+# Hotkey name
+hotkey_name = "default"
+# Path to wallet directory
+directory = "~/.bittensor/wallets"
+
+[workers]
+# Single price multiplier for all workers (e.g., "1.5" means 1.5x base price)
+price_multiplier = "1.0"
+
+# List of hashrate values (in compact string format)
+# These are unnamed workers - just their hashrate capacities
+hashrates = [
+    "100",
+    "200",
+    "150",
+    "250"
+]
