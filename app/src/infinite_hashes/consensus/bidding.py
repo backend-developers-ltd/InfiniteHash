@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import Field
 import structlog
+from pydantic import Field
 
 from infinite_hashes.auctions.mechanism_split import fetch_mechanism_share_fraction
 

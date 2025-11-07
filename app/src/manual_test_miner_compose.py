@@ -29,8 +29,8 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import bittensor_wallet
 import httpx
@@ -184,6 +184,7 @@ async def submit_validator_commitment(
     mechanism_share: float | None = None,
 ) -> None:
     import turbobt
+
     from infinite_hashes.consensus.price import PriceCommitment
 
     TAO_USDC = 45.0
@@ -248,8 +249,7 @@ def docker_compose_base_cmd() -> list[str]:
             subprocess.run(
                 ["docker", "compose", "version"],
                 check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
             return ["docker", "compose"]
         except subprocess.CalledProcessError:
@@ -269,9 +269,7 @@ def copy_compose_file(dest_dir: Path) -> Path:
     text = text.replace("~/.bittensor:/root/.bittensor", "./wallets:/root/.bittensor")
     miner_image_override = os.environ.get("MINER_IMAGE")
     if miner_image_override:
-        pattern = re.compile(
-            r"(?m)^\s*image:\s+(ghcr\.io/backend-developers-ltd/infinitehash-subnet-prod@[\w:+-]+)"
-        )
+        pattern = re.compile(r"(?m)^\s*image:\s+(ghcr\.io/backend-developers-ltd/infinitehash-subnet-prod@[\w:+-]+)")
 
         def _replace(match: re.Match[str]) -> str:
             original = match.group(1)
@@ -553,7 +551,8 @@ async def main() -> int:
 
     ready_event = mp.Event()
     stop_event = mp.Event()
-    os.environ["SIM_HOST"] = "0.0.0.0"
+    # Bind simulator to all interfaces so Docker containers can reach the host.
+    os.environ["SIM_HOST"] = "0.0.0.0"  # noqa: S104
     os.environ["SIM_HTTP_PORT"] = str(SIM_HTTP_PORT)
     os.environ["SIM_RPC_PORT"] = str(SIM_RPC_PORT)
     os.environ["DATABASE_URL"] = f"sqlite:///{workdir / 'simulator.sqlite3'}"
@@ -596,9 +595,7 @@ async def main() -> int:
         LOGGER.info("Cleaning up")
         if stack_started:
             with contextlib.suppress(Exception):
-                subprocess.run(
-                    compose_cmd + ["down", "-v"], cwd=workdir, check=False, timeout=30
-                )
+                subprocess.run(compose_cmd + ["down", "-v"], cwd=workdir, check=False, timeout=30)
         stop_event.set()
         sim_process.terminate()
         sim_process.join(timeout=5)

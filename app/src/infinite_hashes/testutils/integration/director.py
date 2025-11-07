@@ -560,10 +560,10 @@ class Director:
             "luxor_url": settings.LUXOR_API_URL,
             "hotkey": hotkey,
             "workers": event.workers,  # Keep original format for delivery simulation
-             "brainsproxy_active_profile": active_profile_path,
-             "brainsproxy_reload_sentinel": reload_sentinel_path,
-             "logs_dir": logs_dir,
-             "work_dir": miner_workdir,
+            "brainsproxy_active_profile": active_profile_path,
+            "brainsproxy_reload_sentinel": reload_sentinel_path,
+            "logs_dir": logs_dir,
+            "work_dir": miner_workdir,
             **event.wallet_config,
         }
 

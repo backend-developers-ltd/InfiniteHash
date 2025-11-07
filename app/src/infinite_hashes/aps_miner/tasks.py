@@ -264,7 +264,7 @@ async def _process_window(
         )
 
     for bid in commitment_bids:
-        if not isinstance(bid, (list, tuple)) or len(bid) != 2:
+        if not isinstance(bid, list | tuple) or len(bid) != 2:
             continue
         hashrate, price_fp18 = bid
         hashrate_str = str(hashrate)

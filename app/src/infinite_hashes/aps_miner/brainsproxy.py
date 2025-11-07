@@ -8,8 +8,8 @@ profile and signals the configurator sidecar to reapply the profile.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import structlog
 import tomlkit
@@ -74,7 +74,9 @@ def update_routing_weights(won_bids: Iterable[BidResult], lost_bids: Iterable[Bi
     default_goal = _find_goal(doc, GOAL_DEFAULT)
 
     if luxor_goal is None or default_goal is None:
-        logger.warning("Expected Braiins goals not found", luxor_found=bool(luxor_goal), default_found=bool(default_goal))
+        logger.warning(
+            "Expected Braiins goals not found", luxor_found=bool(luxor_goal), default_found=bool(default_goal)
+        )
         return
 
     won_total = _sum_hashrates(won_bids)
