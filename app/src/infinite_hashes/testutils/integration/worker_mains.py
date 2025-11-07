@@ -252,6 +252,13 @@ def aps_miner_worker_main(worker_id: int, command_queue: Any, response_queue: An
 
         install_mock_drand()
 
+        brains_profile = config.get("brainsproxy_active_profile")
+        if brains_profile:
+            os.environ["BRAIINSPROXY_ACTIVE_PROFILE"] = brains_profile
+        reload_sentinel = config.get("brainsproxy_reload_sentinel")
+        if reload_sentinel:
+            os.environ["BRAIINSPROXY_RELOAD_SENTINEL"] = reload_sentinel
+
         response_queue.put({"type": "READY", "worker_id": worker_id, "success": True})
 
         from .aps_miner_worker import run_aps_miner_event_loop
