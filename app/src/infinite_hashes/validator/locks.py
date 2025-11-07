@@ -7,6 +7,8 @@ class LockType(enum.Enum):
     WEIGHT_SETTING = 1
     VALIDATION_SCHEDULING = 2
     AUCTION_SCHEDULING = 3
+    AUCTION_VALIDATION_SCHEDULING = 4
+    AUCTION_WEIGHT_SETTING = 5
 
 
 class Locked(Exception):

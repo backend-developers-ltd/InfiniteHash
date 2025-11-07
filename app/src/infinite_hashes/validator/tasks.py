@@ -783,7 +783,7 @@ async def calculate_auction_weights_async():
                 "No delivered winners across all windows for validation epoch %s",
                 previous_subnet_epoch_start,
             )
-            return None
+            # Continue processing so the entire budget is treated as burn
 
         # Calculate burn statistics (in ALPHA)
         total_burn_alpha = total_budget_alpha - total_spent_alpha
@@ -832,6 +832,10 @@ async def calculate_auction_weights_async():
             logger.warning("Could not determine burn UID, burn will be excluded from weights")
         # If total_burn_alpha <= 0, no burn to allocate
 
+        if not payments_alpha:
+            # No payments recorded and no burn allocation possible
+            return None
+
         # Normalize weights based on ALPHA payments (including burn)
         weights: dict[str, float] = {}
         total_payments_alpha = sum(payments_alpha.values())
@@ -869,7 +873,7 @@ async def calculate_auction_weights_async():
 def calculate_auction_weights(*, event_loop: Any = None):
     with transaction.atomic():
         try:
-            get_advisory_lock(LockType.VALIDATION_SCHEDULING)
+            get_advisory_lock(LockType.AUCTION_VALIDATION_SCHEDULING)
         except Locked:
             logger.debug("Another thread already calculating auction weights")
             return
@@ -1004,7 +1008,7 @@ async def set_auction_weights_async() -> bool:
 def set_auction_weights(*, event_loop: Any = None) -> bool:
     with transaction.atomic():
         try:
-            get_advisory_lock(LockType.WEIGHT_SETTING)
+            get_advisory_lock(LockType.AUCTION_WEIGHT_SETTING)
         except Locked:
             logger.debug("Another thread already setting auction weights")
             return False
