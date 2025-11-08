@@ -18,11 +18,11 @@ directory = "~/.bittensor/wallets"
 # Single price multiplier for all workers (e.g., "1.5" means 1.5x base price)
 price_multiplier = "1.0"
 
-# List of hashrate values (in compact string format)
+# List of hashrate values in Ph (in compact string format)
 # These are unnamed workers - just their hashrate capacities
 hashrates = [
-    "100",
-    "200",
-    "150",
-    "250"
+    "0.1",
+    "0.5",
+    "1",
+    "2"
 ]
