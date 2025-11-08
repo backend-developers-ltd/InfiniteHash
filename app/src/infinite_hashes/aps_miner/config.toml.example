@@ -4,7 +4,7 @@
 # Bittensor network to connect to
 network = "finney"
 # Network UID for the subnet
-netuid = 42
+netuid = 89
 
 [wallet]
 # Wallet name
