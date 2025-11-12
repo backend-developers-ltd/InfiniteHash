@@ -3,6 +3,7 @@ import unittest.mock
 
 import freezegun
 import pytest
+from django.test import override_settings
 
 from infinite_hashes.validator.models import PriceObservation, WeightsBatch
 from infinite_hashes.validator.tasks import (
@@ -144,12 +145,13 @@ def test_set_weights_expired_batches(bittensor):
 
 @pytest.mark.django_db
 @pytest.mark.api_integration
+@override_settings(BITTENSOR_NETWORK="wss://entrypoint-finney.opentensor.ai:443")
 def test_scrape_metrics_real_apis():
     """Test scrape_metrics against real external APIs.
 
     This test requires:
-    - Valid TAOSTATS_API_KEY in settings
-    - Network access to TaoStats API
+    - Network access to Binance API
+    - Network access to Finney network (for on-chain ALPHA/TAO price)
     - Network access to Hashrate Index API
 
     Run with: RUN_API_INTEGRATION=1 pytest -k test_scrape_metrics_real_apis
@@ -165,25 +167,30 @@ def test_scrape_metrics_real_apis():
     assert observations.count() > 0, "Expected price observations to be created"
 
     # Check that we have observations for each metric
-    metrics = set(observations.values_list("metric", flat=True))
-    expected_metrics = {"TAO_USDC", "ALPHA_TAO", "HASHP_USDC"}
-
-    # At least one metric should have been scraped successfully
-    assert len(metrics) > 0, f"Expected at least one metric to be scraped, got: {metrics}"
+    expected_metrics = {"TAO_USDC", "ALPHA_TAO", "HASHP_USDC"}  # ALL are required
 
     # Log what we got for debugging
+    missing_metrics = []
     for metric in expected_metrics:
         count = observations.filter(metric=metric).count()
         if count > 0:
             latest = observations.filter(metric=metric).order_by("-observed_at").first()
             print(f"{metric}: {count} observations, latest at {latest.observed_at} with price {latest.price_fp18}")
         else:
-            print(f"{metric}: No observations (may have failed to scrape)")
+            print(f"{metric}: No observations (scraping FAILED)")
+            missing_metrics.append(metric)
+
+    # ALL metrics must have been scraped successfully - ALPHA_TAO is CRITICAL
+    assert len(missing_metrics) == 0, (
+        f"CRITICAL: Failed to scrape required metrics: {missing_metrics}. "
+        f"All metrics (TAO_USDC, ALPHA_TAO, HASHP_USDC) are required for auction mechanism. "
+        f"Check logs for errors."
+    )
 
     # Verify observations have required fields
     for obs in observations:
         assert obs.metric in expected_metrics, f"Unexpected metric: {obs.metric}"
-        assert obs.source in {"taostats", "hashrateindex"}, f"Unexpected source: {obs.source}"
+        assert obs.source in {"binance", "subtensor", "hashrateindex"}, f"Unexpected source: {obs.source}"
         assert obs.price_fp18 > 0, f"Invalid price for {obs.metric}: {obs.price_fp18}"
         assert obs.observed_at is not None, f"Missing observed_at for {obs.metric}"
         assert obs.observed_at <= datetime.datetime.now(datetime.UTC), f"Future timestamp for {obs.metric}"
