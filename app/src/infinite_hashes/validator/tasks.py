@@ -1358,10 +1358,10 @@ def scrape_metrics():
     Simplicity first: one primary source per metric for now, using settings.
     """
     from infinite_hashes.validator.models import PriceObservation
+    from infinite_hashes.validator.scrapers.binance import BinanceClient
     from infinite_hashes.validator.scrapers.hashrateindex import HashrateIndexClient
-    from infinite_hashes.validator.scrapers.taostats import TaoStatsClient
+    from infinite_hashes.validator.scrapers.subtensor import get_alpha_tao_price
 
-    now = datetime.datetime.now(datetime.UTC)
     conf = getattr(settings, "PRICE_SOURCES", {})
 
     # Helper utilities to keep each scraper concise
@@ -1400,43 +1400,44 @@ def scrape_metrics():
             newest_price=newest[value_key],
         )
 
-    # TAO_USDC via TaoStats OHLC close (last day, up to 5 entries)
-    if "TAO_USDC" in conf and settings.TAOSTATS_API_KEY:
+    # TAO_USDC via Binance API (average price)
+    if "TAO_USDC" in conf:
         try:
-            with TaoStatsClient(api_key=settings.TAOSTATS_API_KEY) as ts:
-                # Query last day with hourly buckets; request 5 entries for resiliency
-                rows = ts.price_ohlc(
-                    asset="TAO",
-                    period="1h",
-                    start_datetime=now - datetime.timedelta(days=1),
-                    end_datetime=now,
-                    limit=5,
-                )
-            _log_series("TAO_USDC", rows, ts_key="timestamp", ts_is_iso=True)
+            with BinanceClient() as binance:
+                # Get current average price
+                data = binance.avg_price("TAOUSDC")
+                rows = [data]  # Wrap in list for consistency with other scrapers
+            _log_series("TAO_USDC", rows, ts_key="timestamp", ts_is_iso=False)
             _store_rows(
-                metric="TAO_USDC", source="taostats", rows=rows, ts_key="timestamp", value_key="close", ts_is_iso=True
+                metric="TAO_USDC", source="binance", rows=rows, ts_key="timestamp", value_key="price", ts_is_iso=False
             )
         except Exception:  # noqa: BLE001
             logger.exception("TAO_USDC scrape failed")
 
-    # ALPHA_TAO via TaoStats dtao pool history (last day, up to 5 entries)
-    if "ALPHA_TAO" in conf and settings.TAOSTATS_API_KEY:
+    # ALPHA_TAO via Subtensor on-chain query (REQUIRED - not optional)
+    if "ALPHA_TAO" in conf:
         try:
-            with TaoStatsClient(api_key=settings.TAOSTATS_API_KEY) as ts:
-                # Use by_hour over last day to get multiple points; request 5 entries
-                rows = ts.dtao_pool_history(
-                    netuid=conf["ALPHA_TAO"].get("dtao_netuid", 89),
-                    start_datetime=now - datetime.timedelta(days=1),
-                    end_datetime=now,
-                    frequency="by_hour",
-                    limit=5,
-                )
-            _log_series("ALPHA_TAO", rows, ts_key="timestamp", ts_is_iso=True)
+
+            async def _fetch_alpha_tao():
+                async with turbobt.Bittensor(settings.BITTENSOR_NETWORK) as bittensor:
+                    netuid = conf["ALPHA_TAO"].get("dtao_netuid", 89)
+                    return await get_alpha_tao_price(bittensor, netuid)
+
+            data = async_to_sync(_fetch_alpha_tao)()
+            rows = [data]  # Wrap in list for consistency
+            _log_series("ALPHA_TAO", rows, ts_key="timestamp", ts_is_iso=False)
             _store_rows(
-                metric="ALPHA_TAO", source="taostats", rows=rows, ts_key="timestamp", value_key="price", ts_is_iso=True
+                metric="ALPHA_TAO",
+                source="subtensor",
+                rows=rows,
+                ts_key="timestamp",
+                value_key="price",
+                ts_is_iso=False,
             )
         except Exception:  # noqa: BLE001
             logger.exception("ALPHA_TAO scrape failed")
+            # Re-raise because ALPHA_TAO is CRITICAL for auction mechanism
+            raise
 
     # HASHP_USDC via Hashrate Index hashprice USD (last day, take up to 5 most recent entries)
     if "HASHP_USDC" in conf:

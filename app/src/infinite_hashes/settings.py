@@ -353,13 +353,13 @@ PRICE_GAMMA = 0.67
 # Per-metric settings: source priority, max age, and other params
 PRICE_SOURCES = {
     "TAO_USDC": {
-        "priority": ["taostats"],
+        "priority": ["binance"],  # Switched from taostats to Binance API
         "max_age_sec": 300,
     },
     "ALPHA_TAO": {
-        "priority": ["taostats"],
+        "priority": ["subtensor"],  # Switched from taostats to direct subtensor query
         "max_age_sec": 300,
-        "dtao_netuid": 89,
+        "dtao_netuid": 89,  # Subnet 89 - will use this subnet's dTAO pool
     },
     "HASHP_USDC": {
         "priority": ["hashrateindex"],
