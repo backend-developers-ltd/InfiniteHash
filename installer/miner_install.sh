@@ -36,7 +36,7 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     PRICE_MULTIPLIER=${PRICE_MULTIPLIER:-1.0}
     PRICE_MULTIPLIER=$(echo "${PRICE_MULTIPLIER}" | tr -d '[:space:]')
 
-    read -r -p "Enter worker hashrates (comma separated) [100,200,150]: " HASHRATES_INPUT </dev/tty
+    read -r -p "Enter worker hashrates in Ph (comma separated) [1,2,3]: " HASHRATES_INPUT </dev/tty
     HASHRATES_INPUT=${HASHRATES_INPUT:-100,200,150}
 
     IFS=',' read -ra HASHRATE_ITEMS <<< "${HASHRATES_INPUT}"
@@ -97,13 +97,13 @@ port = 3333
 [[target]]
 name = "InfiniteHashLuxorTarget"
 url = "stratum+tcp://btc.global.luxor.tech:700"
-user_identity = "InfiniteHashLuxor"
+user_identity = "sn89auction.YOUR_HOTKEY.worker1"
 identity_pass_through = true
 
 [[target]]
 name = "MinerDefaultTarget"
 url = "stratum+tcp://btc.global.luxor.tech:700"
-user_identity = "MinerDefault"
+user_identity = "infinite.YOUR_HOTKEY.worker1"
 identity_pass_through = true
 
 [[target]]
