@@ -53,8 +53,8 @@ def _validator_cmd_scrape_prices(params: dict[str, Any], _context: dict[str, Any
 
     # Default prices
     samples = {
-        "TAO_USDC": (45_000_000_000_000_000_000, "taostats"),  # 45 USDC per TAO
-        "ALPHA_TAO": (250_000_000_000_000_000, "taostats"),  # 0.25 ALPHA per TAO
+        "TAO_USDC": (45_000_000_000_000_000_000, "binance"),  # 45 USDC per TAO
+        "ALPHA_TAO": (250_000_000_000_000_000, "subtensor"),  # 0.25 ALPHA per TAO
         "HASHP_USDC": (50_000_000_000_000_000_000, "hashrateindex"),  # 50 USDC per PH per day
     }
 

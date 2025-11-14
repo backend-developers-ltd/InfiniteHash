@@ -35,6 +35,7 @@ dependencies = [
     "tomli>=2.2.1",
     "tomli-w>=1.2.0",
     "tomlkit>=0.13",
+    "ruff==0.12.2",
 ]
 
 [build-system]
