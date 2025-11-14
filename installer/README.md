@@ -57,3 +57,15 @@ If you want to manually update your validator, you can run:
 ```bash
 curl -s https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads/deploy-config-prod/installer/update_compose.sh | bash -s -- [ENV_NAME] [WORKING_DIRECTORY]
 ```
+
+## APS Miner Installation
+
+An installer for the APS miner (APScheduler-based miner) is also available:
+
+```bash
+curl -s https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads/deploy-config-miner/installer/miner_install.sh | bash
+```
+
+This script will prompt for TOML configuration values, generate `config.toml`, deploy the miner stack with Docker Compose, and install a cron job that keeps the compose file up to date by calling `installer/update_miner_compose.sh`.
+
+The miner bundle automatically provisions Braiins Farm Proxy (`farm-proxy` and configurator sidecar) and keeps the active profile in `brainsproxy/active_profile.toml` in sync with APS miner auction results.

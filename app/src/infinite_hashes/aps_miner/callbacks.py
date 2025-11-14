@@ -7,6 +7,7 @@ Future: integrate with ASIC routing logic.
 
 import structlog
 
+from .brainsproxy import update_routing_weights
 from .models import AuctionResult, BidResult
 
 logger = structlog.get_logger(__name__)
@@ -44,6 +45,11 @@ def handle_auction_results(result: AuctionResult) -> None:
 
     if lost_bids:
         _handle_lost_bids(lost_bids, result)
+
+    try:
+        update_routing_weights(won_bids, lost_bids)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to update Braiins routing weights")
 
 
 def _handle_won_bids(won_bids: list[BidResult], result: AuctionResult) -> None:

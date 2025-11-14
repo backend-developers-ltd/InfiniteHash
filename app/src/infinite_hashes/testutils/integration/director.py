@@ -11,6 +11,7 @@ The Director:
 import datetime as dt
 import os
 import random
+import shutil
 import tempfile
 from collections.abc import Callable
 from contextlib import redirect_stdout
@@ -53,6 +54,50 @@ BLOCK_INTERVAL_SECONDS = 12  # Real mainnet block time
 SIM_HOST = "127.0.0.1"
 SIM_HTTP_PORT = 8090
 
+_BRAIINS_PROFILE_TEMPLATE = """[[server]]
+name = "InfiniteHash"
+port = 3333
+
+[[target]]
+name = "InfiniteHashLuxorTarget"
+url = "stratum+tcp://btc.global.luxor.tech:700"
+user_identity = "InfiniteHashLuxor"
+identity_pass_through = true
+
+[[target]]
+name = "MinerDefaultTarget"
+url = "stratum+tcp://btc.global.luxor.tech:700"
+user_identity = "MinerDefault"
+identity_pass_through = true
+
+[[target]]
+name = "MinerBackupTarget"
+url = "stratum+tcp://btc.viabtc.io:3333"
+user_identity = "MinerBackup"
+identity_pass_through = true
+
+[[routing]]
+name = "RD"
+from = ["InfiniteHash"]
+
+[[routing.goal]]
+name = "InfiniteHashLuxorGoal"
+hr_weight = 9
+
+[[routing.goal.level]]
+targets = ["InfiniteHashLuxorTarget"]
+
+[[routing.goal]]
+name = "MinerDefaultGoal"
+hr_weight = 10
+
+[[routing.goal.level]]
+targets = ["MinerDefaultTarget"]
+
+[[routing.goal.level]]
+targets = ["MinerBackupTarget"]
+"""
+
 
 class Director:
     """Orchestrates scenario execution with event-driven timeline."""
@@ -88,6 +133,14 @@ class Director:
         with open(config_path, "wb") as f:
             tomli_w.dump(config_data, f)
 
+    @staticmethod
+    def _ensure_braiins_profile(profile_path: str) -> None:
+        os.makedirs(os.path.dirname(profile_path), exist_ok=True)
+        if os.path.exists(profile_path):
+            return
+        with open(profile_path, "w", encoding="utf-8") as f:
+            f.write(_BRAIINS_PROFILE_TEMPLATE)
+
     def __init__(
         self,
         scenario: Scenario,
@@ -120,6 +173,7 @@ class Director:
         self.miner_configs: dict[str, dict[str, Any]] = {}
         self.validator_neurons: dict[str, dict[str, Any]] = {}
         self.miner_neurons: dict[str, dict[str, Any]] = {}
+        self._temp_dirs: list[str] = []
 
         # Worker ID counter (validators get 0-N, miners get N+1 onwards)
         self.next_worker_id = 0
@@ -474,8 +528,10 @@ class Director:
         # Extract hashrates for APS miner TOML config
         hashrates = [w.get("hashrate_ph") for w in event.workers]
 
-        # Create TOML config file for APS miner
-        config_path = os.path.join(tempfile.gettempdir(), f"miner_{self.run_suffix}_{miner_idx}_config.toml")
+        # Prepare per-miner working directory
+        miner_workdir = tempfile.mkdtemp(prefix=f"aps_miner_{self.run_suffix}_{miner_idx}_")
+        self._temp_dirs.append(miner_workdir)
+        config_path = os.path.join(miner_workdir, "config.toml")
         self._write_miner_toml_config(
             config_path,
             network="ws://127.0.0.1:9944",  # Use simulator network
@@ -487,6 +543,13 @@ class Director:
             price_multiplier=price_multiplier,
         )
 
+        brainsproxy_dir = os.path.join(miner_workdir, "brainsproxy")
+        active_profile_path = os.path.join(brainsproxy_dir, "active_profile.toml")
+        self._ensure_braiins_profile(active_profile_path)
+        reload_sentinel_path = os.path.join(brainsproxy_dir, ".reconfigure")
+        logs_dir = os.path.join(miner_workdir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+
         # Create config dict (for worker process and delivery simulation)
         config = {
             "config_path": config_path,  # APS miner uses config path
@@ -497,6 +560,10 @@ class Director:
             "luxor_url": settings.LUXOR_API_URL,
             "hotkey": hotkey,
             "workers": event.workers,  # Keep original format for delivery simulation
+            "brainsproxy_active_profile": active_profile_path,
+            "brainsproxy_reload_sentinel": reload_sentinel_path,
+            "logs_dir": logs_dir,
+            "work_dir": miner_workdir,
             **event.wallet_config,
         }
 
@@ -1259,3 +1326,6 @@ class Director:
             for name, inactive_miner in self.inactive_miners.items():
                 logger.debug("Stopping inactive miner", name=name)
                 inactive_miner.stop()
+
+        for path in self._temp_dirs:
+            shutil.rmtree(path, ignore_errors=True)

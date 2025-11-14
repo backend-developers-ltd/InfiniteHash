@@ -128,15 +128,22 @@ class HardTimeoutExecutor(BaseExecutor):
                     time.sleep(0.05)
             finally:
                 try:
-                    p.close()
-                except Exception as exc:
-                    if self._logger:
-                        self._logger.warning(
-                            "Failed to close process for job %s: %s",
-                            job.id,
-                            exc,
-                        )
-                self._procs.pop(job.id, None)
+                    if p.is_alive():
+                        p.terminate()
+                        p.join(timeout=1)
+                    else:
+                        p.join(timeout=1)
+                finally:
+                    try:
+                        p.close()
+                    except Exception as exc:
+                        if self._logger:
+                            self._logger.warning(
+                                "Failed to close process for job %s: %s",
+                                job.id,
+                                exc,
+                            )
+                    self._procs.pop(job.id, None)
 
         # Launch watcher thread
         threading.Thread(target=watch, daemon=True).start()

@@ -1,0 +1,83 @@
+services:
+  miner:
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:019db425a5faf3eaa30a1b4eb86ec4c3af3a87be6d45337e13e2996ca5f52ccf
+    pull_policy: always
+    init: true
+    restart: unless-stopped
+    working_dir: /root/src
+    command: python -m infinite_hashes.aps_miner /root/src/config.toml
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BRAIINSPROXY_ACTIVE_PROFILE=/root/src/brainsproxy/active_profile.toml
+      - BRAIINSPROXY_RELOAD_SENTINEL=/root/src/brainsproxy/.reconfigure
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config.toml:/root/src/config.toml:ro
+      - ~/.bittensor:/root/.bittensor
+      - ./logs:/root/src/logs
+      - ./brainsproxy/config:/root/src/brainsproxy
+    depends_on:
+      - farm-proxy
+    logging: &logging
+      driver: journald
+      options:
+        tag: '{{.Name}}'
+
+  farm-proxy:
+    image: braiinssystems/farm-proxy:24.06
+    restart: unless-stopped
+    command: ["run"]
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=full
+      - CONFIG_FILE=/config/config_cache/last_used_config.toml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - farm-proxy-cache:/config/config_cache
+      - ./brainsproxy/config:/config/profiles
+    ports:
+      - "3333:3333"
+    logging:
+      <<: *logging
+
+  farm-proxy-configurator:
+    image: braiinssystems/farm-proxy:24.06
+    entrypoint: /bin/sh
+    command: >
+      -c "set -e;
+          until farm-proxy configure; do
+            echo \"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") Braiins configurator: waiting for farm-proxy...\" >&2;
+            sleep ${BRAIINS_RELOAD_INTERVAL:-5};
+          done;
+          while true; do
+            if [ -f /config/profiles/.reconfigure ]; then
+              echo \"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") Braiins configurator: detected sentinel, reconfiguring...\";
+              rm -f /config/profiles/.reconfigure;
+              if ! farm-proxy configure; then
+                echo \"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") Braiins configurator: configure failed, retrying...\" >&2;
+                sleep ${BRAIINS_RELOAD_INTERVAL:-5};
+                continue;
+              fi;
+            fi;
+            sleep ${BRAIINS_RELOAD_INTERVAL:-5};
+          done"
+    restart: unless-stopped
+    environment:
+      - BRAIINS_RELOAD_INTERVAL=5
+      - HTTP_SOCKET_OVERRIDE=farm-proxy:8080
+      - CONFIG_FILE=/config/profiles/active_profile.toml
+      - FP_CONFIG_PROFILE=active_profile.toml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./brainsproxy/config:/config/profiles
+      - farm-proxy-cache:/config/config_cache
+    depends_on:
+      - farm-proxy
+    logging:
+      <<: *logging
+
+volumes:
+  farm-proxy-cache:
