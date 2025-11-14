@@ -126,17 +126,14 @@ else
 fi
 
 expand_path() {
-    case "$1" in
-        "~/"*)
-            printf "%s/%s" "$HOME" "${1#~/}"
-            ;;
-        "~")
-            printf "%s" "$HOME"
-            ;;
-        *)
-            printf "%s" "$1"
-            ;;
-    esac
+    local input=$1
+    if [ "${input#\~/}" != "${input}" ]; then
+        printf "%s/%s" "$HOME" "${input#\~/}"
+    elif [ "${input}" = "~" ]; then
+        printf "%s" "$HOME"
+    else
+        printf "%s" "${input}"
+    fi
 }
 
 WALLET_DIR_EXPANDED=$(expand_path "${BITTENSOR_WALLET_DIRECTORY}")
