@@ -267,9 +267,9 @@ async def test_luxor_scraper_long_running_real_api():
     for worker_name, snapshots in snapshots_by_worker.items():
         if worker_name in low_hashrate_workers:
             continue
-        assert (
-            len(snapshots) >= EXPECTED_DATA_POINTS
-        ), f"Worker {worker_name} has {len(snapshots)} snapshots, expected at least {EXPECTED_DATA_POINTS}"
+        assert len(snapshots) >= EXPECTED_DATA_POINTS, (
+            f"Worker {worker_name} has {len(snapshots)} snapshots, expected at least {EXPECTED_DATA_POINTS}"
+        )
 
     # Verify all snapshots are for correct subaccount
     wrong_subaccount = await LuxorSnapshot.objects.exclude(subaccount_name=subaccount).acount()
@@ -281,23 +281,23 @@ async def test_luxor_scraper_long_running_real_api():
         assert times == sorted(times, reverse=True), f"Snapshots for {worker_name} not in descending order"
 
     # Verify ValidatorScrapingEvent assertions
-    assert (
-        len(all_scraping_events_list) == NUM_POLLS
-    ), f"Expected {NUM_POLLS} scraping events, got {len(all_scraping_events_list)}"
+    assert len(all_scraping_events_list) == NUM_POLLS, (
+        f"Expected {NUM_POLLS} scraping events, got {len(all_scraping_events_list)}"
+    )
 
     # Verify block numbers match expected
     for i, (event, expected_block) in enumerate(zip(all_scraping_events_list, expected_blocks)):
-        assert (
-            event.block_number == expected_block
-        ), f"Event {i + 1} has block {event.block_number}, expected {expected_block}"
+        assert event.block_number == expected_block, (
+            f"Event {i + 1} has block {event.block_number}, expected {expected_block}"
+        )
 
     # Verify block numbers are monotonically increasing
-    assert scraping_event_block_numbers == sorted(
-        scraping_event_block_numbers
-    ), "Block numbers should be monotonically increasing"
-    assert len(set(scraping_event_block_numbers)) == len(
-        scraping_event_block_numbers
-    ), "All block numbers should be unique"
+    assert scraping_event_block_numbers == sorted(scraping_event_block_numbers), (
+        "Block numbers should be monotonically increasing"
+    )
+    assert len(set(scraping_event_block_numbers)) == len(scraping_event_block_numbers), (
+        "All block numbers should be unique"
+    )
 
     # Verify worker_count is non-negative
     for event in all_scraping_events_list:
