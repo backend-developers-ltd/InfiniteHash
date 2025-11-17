@@ -61,25 +61,6 @@ if [ ! -f "${CONFIG_FILE}" ]; then
         done
     fi
 
-    DEFAULT_LUXOR_IDENTITY="sn${BITTENSOR_NETUID}auction.${BITTENSOR_WALLET_HOTKEY_NAME}.worker1"
-    read -r -p "Enter Luxor user identity for InfiniteHash target [${DEFAULT_LUXOR_IDENTITY}]: " LUXOR_USER_ID </dev/tty
-    LUXOR_USER_ID=${LUXOR_USER_ID:-${DEFAULT_LUXOR_IDENTITY}}
-
-    read -r -p "Enable identity pass-through for Luxor target? [Y/n]: " LUXOR_PASSTHROUGH </dev/tty
-    if [ -z "${LUXOR_PASSTHROUGH}" ] || [[ "${LUXOR_PASSTHROUGH}" =~ ^[Yy] ]]; then
-        LUXOR_PASSTHROUGH_BOOL=true
-    else
-        LUXOR_PASSTHROUGH_BOOL=false
-    fi
-
-    DEFAULT_MINER_IDENTITY="infinite.${BITTENSOR_WALLET_HOTKEY_NAME}.worker1"
-    read -r -p "Enter user identity for MinerDefault target [${DEFAULT_MINER_IDENTITY}]: " MINER_DEFAULT_ID </dev/tty
-    MINER_DEFAULT_ID=${MINER_DEFAULT_ID:-${DEFAULT_MINER_IDENTITY}}
-
-    DEFAULT_BACKUP_IDENTITY="backup.${BITTENSOR_WALLET_HOTKEY_NAME}.worker1"
-    read -r -p "Enter user identity for MinerBackup target [${DEFAULT_BACKUP_IDENTITY}]: " MINER_BACKUP_ID </dev/tty
-    MINER_BACKUP_ID=${MINER_BACKUP_ID:-${DEFAULT_BACKUP_IDENTITY}}
-
     cat > "${CONFIG_FILE}" <<EOL
 [bittensor]
 network = "${BITTENSOR_NETWORK}"
