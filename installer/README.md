@@ -63,7 +63,7 @@ curl -s https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/re
 An installer for the APS miner (APScheduler-based miner) is also available:
 
 ```bash
-curl -s https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads/deploy-config-miner/installer/miner_install.sh | bash
+curl -s https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads/deploy-config-prod/installer/miner_install.sh | bash
 ```
 
 This script will prompt for TOML configuration values, generate `config.toml`, deploy the miner stack with Docker Compose, and install a cron job that keeps the compose file up to date by calling `installer/update_miner_compose.sh`.

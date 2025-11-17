@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-ENV_NAME="${1:-miner}"
+ENV_NAME="${1:-prod}"
 WORKING_DIRECTORY=${2:-~/InfiniteHash-miner/}
 
 mkdir -p "${WORKING_DIRECTORY}"
