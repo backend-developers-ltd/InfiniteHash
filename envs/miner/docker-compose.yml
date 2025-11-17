@@ -1,6 +1,6 @@
 services:
   miner:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:019db425a5faf3eaa30a1b4eb86ec4c3af3a87be6d45337e13e2996ca5f52ccf
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:eb4f1d994f0d00e535b844a4363e4e1f46605993b54a9da790d6e8e9ff77041f
     pull_policy: always
     init: true
     restart: unless-stopped
