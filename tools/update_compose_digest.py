@@ -2,8 +2,10 @@
 """
 Update docker-compose image digests after a deploy-build run.
 
-Example:
-    python tools/update_compose_digest.py prod
+Examples:
+    python tools/update_compose_digest.py validator
+    python tools/update_compose_digest.py miner --environment staging
+    python tools/update_compose_digest.py all --environment prod
 """
 
 from __future__ import annotations
@@ -56,33 +58,55 @@ def update_compose(compose_path: Path, env: str, digest: str) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "environment",
-        nargs="?",
-        default="prod",
+        "target",
+        choices=["validator", "miner", "all"],
+        help="which docker-compose file(s) to update",
+    )
+    parser.add_argument(
+        "-e",
+        "--environment",
         choices=["prod", "staging"],
-        help="target environment (determines image namespace)",
+        default="prod",
+        help="target environment (determines image namespace, default: prod)",
     )
     default_path = Path(__file__).resolve().parents[1] / "envs" / "deployed" / "docker-compose.yml"
     parser.add_argument(
         "--compose-path",
         type=Path,
         default=default_path,
-        help=f"path to docker-compose.yml to update (default: {default_path})",
+        help=f"path to validator docker-compose.yml (default: {default_path})",
+    )
+    miner_default_path = Path(__file__).resolve().parents[1] / "envs" / "miner" / "docker-compose.yml"
+    parser.add_argument(
+        "--miner-compose-path",
+        type=Path,
+        default=miner_default_path,
+        help=f"path to miner docker-compose.yml (default: {miner_default_path})",
     )
     args = parser.parse_args()
 
     image_tag = f"{REPOSITORY_PREFIX}-{args.environment}:{TAG}"
     digest = fetch_digest(image_tag)
 
-    compose_path = args.compose_path
-    if not compose_path.exists():
-        raise SystemExit(f"docker-compose file not found: {compose_path}")
+    targets: list[tuple[str, Path]] = []
+    if args.target in ("validator", "all"):
+        targets.append(("validator", args.compose_path))
+    if args.target in ("miner", "all"):
+        targets.append(("miner", args.miner_compose_path))
 
-    replacements = update_compose(compose_path, args.environment, digest)
-    if replacements == 0:
-        raise SystemExit(f"No image references for environment '{args.environment}' found in {compose_path}")
+    total_replacements = 0
+    for label, compose_path in targets:
+        if not compose_path.exists():
+            raise SystemExit(f"docker-compose file not found for {label}: {compose_path}")
+        replacements = update_compose(compose_path, args.environment, digest)
+        if replacements == 0:
+            print(f"No image references for environment '{args.environment}' found in {compose_path}")
+        else:
+            print(f"{label.capitalize()}: pinned {replacements} reference(s) to {image_tag}@{digest}")
+        total_replacements += replacements
 
-    print(f"Pinned {replacements} reference(s) to {image_tag}@{digest}")
+    if total_replacements == 0:
+        raise SystemExit("No image references were updated.")
 
 
 if __name__ == "__main__":

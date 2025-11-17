@@ -206,6 +206,10 @@ result = compute_current_auction("config.toml")
 print(result)
 ```
 
+For a full end-to-end manual test with the blockchain simulator, run:
+
+- `python manual_test_miner_compose.py` – builds the miner image (or reuses an override), launches the Docker Compose stack (miner plus Braiins proxy), and validates automatic Braiins profile updates.
+
 ## Logging
 
 Structured JSON logging to stdout using structlog:

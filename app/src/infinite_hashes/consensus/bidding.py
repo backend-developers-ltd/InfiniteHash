@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import structlog
 from pydantic import Field
 
 from infinite_hashes.auctions.mechanism_split import fetch_mechanism_share_fraction
@@ -15,6 +16,7 @@ from .price import (
 )
 
 FP = 10**18
+logger = structlog.get_logger(__name__)
 
 
 class BiddingCommitment(CompactCommitment):
@@ -136,10 +138,17 @@ async def select_auction_winners_async(
 
     prices = await _fetch_prices(bt, netuid, start_block)
     if prices is None:
+        logger.warning(
+            "Price consensus unavailable for auction budget",
+            netuid=netuid,
+            start_block=start_block,
+            end_block=end_block,
+        )
         return []
 
     BASE_MINER_SHARE = 0.41  # fraction of block emission allocated to miners pre-split
     share_fp18 = miners_share_fp18
+    share_fraction: float | None = None
     if share_fp18 is None:
         share_fraction = await fetch_mechanism_share_fraction(
             bt,
@@ -147,6 +156,7 @@ async def select_auction_winners_async(
             mechanism_id,
         )
         share_fp18 = int(share_fraction * BASE_MINER_SHARE * FP)
+    miner_share_per_block = float(share_fp18) / FP
 
     budget_ph = _compute_budget_ph(
         prices["ALPHA_TAO"],
@@ -157,7 +167,32 @@ async def select_auction_winners_async(
         share_fp18,
     )
     if budget_ph <= 0:
+        logger.warning(
+            "Computed non-positive auction budget",
+            netuid=netuid,
+            start_block=start_block,
+            end_block=end_block,
+            alpha_tao=float(prices["ALPHA_TAO"]) / FP,
+            tao_usdc=float(prices["TAO_USDC"]) / FP,
+            hashp_usdc=float(prices["HASHP_USDC"]) / FP,
+            miner_share_per_block=miner_share_per_block,
+            share_fraction=share_fraction,
+        )
         return []
+
+    logger.info(
+        "Auction budget computed",
+        netuid=netuid,
+        start_block=start_block,
+        end_block=end_block,
+        alpha_tao=float(prices["ALPHA_TAO"]) / FP,
+        tao_usdc=float(prices["TAO_USDC"]) / FP,
+        hashp_usdc=float(prices["HASHP_USDC"]) / FP,
+        miner_share_per_block=miner_share_per_block,
+        share_fraction=share_fraction,
+        budget_ph=budget_ph,
+        bid_hotkeys=len(bids_by_hotkey or {}),
+    )
 
     workers = _build_worker_items(bids_by_hotkey, max_price_multiplier)
     if not workers:

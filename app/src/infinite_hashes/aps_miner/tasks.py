@@ -245,9 +245,6 @@ async def _process_window(
     )
     start_ts, end_ts = await auction_utils.window_timestamps(bittensor, start_block, end_block)
 
-    # Build our workers for result reconciliation
-    workers = _build_workers_from_config(config)
-
     # Determine which of our bids won
     my_bids: list[BidResult] = []
     winner_keys: set[tuple[str, int]] = set()
@@ -257,13 +254,28 @@ async def _process_window(
             continue
         winner_keys.add((item.get("hotkey"), winner_hashrate_fp))
 
-    for worker in workers:
-        hashrate = worker.hashrate_compact
-        worker_hashrate_fp = _hashrate_to_fp18(hashrate)
-        won = (hotkey, worker_hashrate_fp) in winner_keys if worker_hashrate_fp is not None else False
+    commitment_bids = bids_by_hotkey.get(hotkey) or []
+    if not commitment_bids:
+        logger.warning(
+            "No bidding commitment found for miner hotkey during window reconciliation",
+            hotkey=hotkey[:16],
+            start_block=start_block,
+            end_block=end_block,
+        )
 
-        price_fp18 = worker.bid_tuple()[1]
-        my_bids.append(BidResult(hashrate=hashrate, price_fp18=price_fp18, won=won))
+    for bid in commitment_bids:
+        if not isinstance(bid, list | tuple) or len(bid) != 2:
+            continue
+        hashrate, price_fp18 = bid
+        hashrate_str = str(hashrate)
+        worker_hashrate_fp = _hashrate_to_fp18(hashrate_str)
+        try:
+            price_fp18_int = int(price_fp18)
+        except (TypeError, ValueError):
+            logger.warning("Invalid price in commitment bid", price=price_fp18, hotkey=hotkey[:16])
+            continue
+        won = (hotkey, worker_hashrate_fp) in winner_keys if worker_hashrate_fp is not None else False
+        my_bids.append(BidResult(hashrate=hashrate_str, price_fp18=price_fp18_int, won=won))
 
     result = AuctionResult(
         epoch_start=epoch_start,

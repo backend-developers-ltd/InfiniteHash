@@ -96,9 +96,9 @@ def simulator_process(ready_event: mp.Event, stop_event: mp.Event) -> None:
             await asyncio.to_thread(stop_event.wait)
             shutdown.set()
 
-        SIM_HOST = "127.0.0.1"
-        SIM_HTTP_PORT = 8090
-        SIM_RPC_PORT = 9944
+        SIM_HOST = os.environ.get("SIM_HOST", "127.0.0.1")
+        SIM_HTTP_PORT = int(os.environ.get("SIM_HTTP_PORT", 8090))
+        SIM_RPC_PORT = int(os.environ.get("SIM_RPC_PORT", 9944))
 
         http_task = asyncio.create_task(run_http_server(SIM_HOST, SIM_HTTP_PORT, state, shutdown))
         rpc_task = asyncio.create_task(run_rpc_server(SIM_HOST, SIM_RPC_PORT, state, shutdown))
@@ -251,6 +251,13 @@ def aps_miner_worker_main(worker_id: int, command_queue: Any, response_queue: An
         from infinite_hashes.testutils.integration.mock_drand import install_mock as install_mock_drand
 
         install_mock_drand()
+
+        brains_profile = config.get("brainsproxy_active_profile")
+        if brains_profile:
+            os.environ["BRAIINSPROXY_ACTIVE_PROFILE"] = brains_profile
+        reload_sentinel = config.get("brainsproxy_reload_sentinel")
+        if reload_sentinel:
+            os.environ["BRAIINSPROXY_RELOAD_SENTINEL"] = reload_sentinel
 
         response_queue.put({"type": "READY", "worker_id": worker_id, "success": True})
 
