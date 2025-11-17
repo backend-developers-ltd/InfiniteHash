@@ -1516,7 +1516,7 @@ def publish_local_commitment(*, event_loop: Any = None):
         prices[metric] = fp
 
     # Query banned miners from last 90 days
-    cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=90)
+    cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=3)
     banned_hotkeys = set(BannedMiner.objects.filter(banned_at__gte=cutoff).values_list("hotkey", flat=True))
 
     return run_async(_publish_price_commitment_async, prices, banned_hotkeys, event_loop=event_loop)
