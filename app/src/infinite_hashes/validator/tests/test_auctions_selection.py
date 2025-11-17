@@ -321,6 +321,7 @@ async def test_process_auctions_creates_results_with_delivery_threshold(monkeypa
     sim.set_block_context(number=end_block + 100)
     _BTProxy = _bt_proxy_factory(sim, start_block, end_block)
     monkeypatch.setattr(auct.turbobt, "Bittensor", _BTProxy)
+    monkeypatch.setattr(auct, "DELIVERY_THRESHOLD_FRACTION", 0.95)
 
     # Prepare commitments from CSV workers
     workers = _load_workers_csv(limit=None)
