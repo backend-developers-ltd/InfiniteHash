@@ -229,7 +229,7 @@ async def _process_window(
 
     Refactored from original to return AuctionResult instead of saving to DB.
     """
-    start_blk, bids_by_hotkey = await auction_utils.fetch_bids_for_start_block(
+    start_blk, bids_by_hotkey, _ = await auction_utils.fetch_bids_for_start_block(
         bittensor, subnet, start_block, config.bittensor.netuid
     )
     cbc_seed = auction_utils.cbc_seed_from_hash(start_blk.hash)

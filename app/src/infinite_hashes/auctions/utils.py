@@ -48,7 +48,7 @@ async def fetch_bids_for_start_block(
     subnet: Any,
     start_block: int,
     netuid: int,
-) -> tuple[Any, dict[str, list[tuple[str, int]]]]:
+) -> tuple[Any, dict[str, list[tuple[str, int]]], set[str]]:
     """Fetch bids for a start block and filter out banned hotkeys based on consensus.
 
     Args:
@@ -58,7 +58,7 @@ async def fetch_bids_for_start_block(
         netuid: Network UID for ban consensus computation
 
     Returns:
-        Tuple of (block, bids_by_hotkey) where bids from banned hotkeys are excluded
+        Tuple of (block, bids_by_hotkey, banned_hotkeys) where bids from banned hotkeys are excluded
     """
     from infinite_hashes.consensus.price import compute_ban_consensus
 
@@ -86,9 +86,9 @@ async def fetch_bids_for_start_block(
             banned_count=len(banned_hotkeys),
             filtered_bids=len(filtered_bids),
         )
-        return start_blk, filtered_bids
+        return start_blk, filtered_bids, set(banned_hotkeys)
 
-    return start_blk, bids_by_hotkey
+    return start_blk, bids_by_hotkey, set()
 
 
 async def window_timestamps(bittensor: turbobt.Bittensor, start_block: int, end_block: int):

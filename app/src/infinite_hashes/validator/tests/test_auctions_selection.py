@@ -261,7 +261,8 @@ def _make_fake_hashrates(
             won_by_hotkey[w["hotkey"]] = won_by_hotkey.get(w["hotkey"], 0.0) + float(w["hashrate"])  # PH
         for hk in bids_by_hotkey.keys():
             requested_ph = won_by_hotkey.get(hk, 0.0)
-            delivered_ph = (0.88 if hk in below_threshold else 0.95) * requested_ph
+            is_under = hk in below_threshold and requested_ph > 0.0
+            delivered_ph = (0.88 if is_under else 0.95) * requested_ph
             delivered_hs = int(delivered_ph * 1e15)
             out[hk] = [[delivered_hs]]  # List of samples, each sample is list of worker hashrates
         return out
@@ -371,10 +372,68 @@ async def test_process_auctions_creates_results_with_delivery_threshold(monkeypa
     # All stored winners should be delivered=True (non-delivered are banned and excluded)
     delivered_flags = [w.get("delivered", False) for w in ar.winners]
     assert all(delivered_flags), "All stored winners should have delivered=True"
+    assert ar.skipped_delivery_check is False
+
+    stored_underdelivered = set(ar.underdelivered_hotkeys)
+    won_hotkeys = {w["hotkey"] for w in winners_record.get("winners", [])}
+    assert stored_underdelivered, "Stored AuctionResult should track underdelivered hotkeys"
+    assert stored_underdelivered.issubset(won_hotkeys)
+    assert ar.banned_hotkeys == []
 
     # Aggregate winners per (hotkey, price) and assert against stored expectations
     expected_data = _aggregate_winners_snapshot(ar.winners, budget_frac)
     _assert_snapshot_for_budget(budget_frac, expected_data)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_process_auctions_marks_skipped_delivery_on_scraping_gaps(monkeypatch, settings, sim):
+    start_block = 20_500
+    end_block = start_block + 49
+    from infinite_hashes.auctions import utils as auction_utils
+
+    monkeypatch.setattr(
+        auction_utils, "validation_windows_for_subnet_epoch", lambda *_args, **_kw: [(start_block, end_block)]
+    )
+
+    sim.set_block_context(number=end_block + 100)
+    _BTProxy = _bt_proxy_factory(sim, start_block, end_block)
+    monkeypatch.setattr(auct.turbobt, "Bittensor", _BTProxy)
+    monkeypatch.setattr(auct, "DELIVERY_THRESHOLD_FRACTION", 0.95)
+
+    workers = _load_workers_csv(limit=10)
+    total_csv_ph = sum(sum(v) for v in workers.values())
+    bids_by_hotkey = _build_bids_by_hotkey(workers)
+    _apply_commitments(sim, settings, bids_by_hotkey)
+
+    budget_frac = 0.4
+    fake_consensus = _make_fake_consensus(start_block, end_block, budget_frac, total_csv_ph)
+    monkeypatch.setattr("infinite_hashes.consensus.bidding.compute_price_consensus", fake_consensus)
+
+    async def _no_bans(*args, **kwargs):
+        return set()
+
+    monkeypatch.setattr("infinite_hashes.consensus.price.compute_ban_consensus", _no_bans)
+
+    async def _has_gaps(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(auct, "has_scraping_data_gaps", _has_gaps)
+
+    winners_record: dict[str, list[dict[str, Any]]] = {}
+    monkeypatch.setattr(auct, "select_auction_winners_async", _make_selector_wrapper(winners_record), raising=True)
+
+    await sync_to_async(lambda: AuctionResult.objects.all().delete())()
+
+    processed = await auct.process_auctions_async()
+    assert processed == 1
+
+    ar = await sync_to_async(lambda: AuctionResult.objects.get(end_block=end_block))()
+    assert ar.skipped_delivery_check is True
+    assert ar.underdelivered_hotkeys == []
+    assert ar.banned_hotkeys == []
+    assert ar.winners, "Winners should still be recorded even when skipping delivery check"
+    assert all(w.get("delivered") for w in ar.winners)
 
 
 def _ss58_pubkey_bytes(hk: str) -> bytearray:
