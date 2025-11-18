@@ -14,6 +14,7 @@ from infinite_hashes.validator.models import AuctionResult, BannedMiner, Validat
 from .hashrates import get_hashrates_from_snapshots_async
 
 logger = structlog.wrap_logger(get_task_logger(__name__))
+DELIVERY_THRESHOLD_FRACTION = 0.5  # Minimum delivered share required to consider winner compliant
 
 
 async def existing_end_blocks(epoch_start: int | None = None) -> set[int]:
@@ -212,7 +213,7 @@ def mark_delivery(winners: list[dict], hashrates: dict[str, list[list[int]]]) ->
 
         # Average delivered across all samples
         avg_delivered = total_delivered / len(vals)
-        threshold = 0.95 * total_commitment
+        threshold = DELIVERY_THRESHOLD_FRACTION * total_commitment
         is_delivered = avg_delivered >= threshold
 
         logger.debug(
