@@ -257,6 +257,9 @@ async def record_result(
     end_block: int,
     commitments_count: int,
     winners_with_delivery: list[dict],
+    skipped_delivery_check: bool = False,
+    underdelivered_hotkeys: list[str] | None = None,
+    banned_hotkeys: list[str] | None = None,
     hashp_usdc_fp18: int | None = None,
     alpha_tao_fp18: int | None = None,
     tao_usdc_fp18: int | None = None,
@@ -264,6 +267,9 @@ async def record_result(
     """Record auction result with price consensus for weight calculation.
 
     Args:
+        skipped_delivery_check: True when delivery verification was skipped due to scraping gaps
+        underdelivered_hotkeys: Hotkeys that failed delivery validation during the window
+        banned_hotkeys: Hotkeys that were banned via ban consensus for the window
         hashp_usdc_fp18: Hashrate price consensus (USDC per PH per day) in FP18 format
         alpha_tao_fp18: ALPHA/TAO price consensus in FP18 format
         tao_usdc_fp18: TAO/USDC price consensus in FP18 format
@@ -283,6 +289,9 @@ async def record_result(
         end_block=end_block,
         commitments_count=commitments_count,
         winners=winners_with_delivery,
+        skipped_delivery_check=skipped_delivery_check,
+        underdelivered_hotkeys=sorted(set(underdelivered_hotkeys or [])),
+        banned_hotkeys=sorted(set(banned_hotkeys or [])),
         hashp_usdc=hashp_usdc,
         alpha_tao=alpha_tao,
         tao_usdc=tao_usdc,
@@ -386,7 +395,7 @@ async def process_auctions_async() -> int:
         )
 
         for subnet_epoch_start, start_block, end_block, window_num in candidates:
-            start_blk, bids_by_hotkey = await auction_utils.fetch_bids_for_start_block(
+            start_blk, bids_by_hotkey, consensus_banned_hotkeys = await auction_utils.fetch_bids_for_start_block(
                 bittensor, subnet, start_block, settings.BITTENSOR_NETUID
             )
             cbc_seed = auction_utils.cbc_seed_from_hash(start_blk.hash)
@@ -426,6 +435,8 @@ async def process_auctions_async() -> int:
             # Check for scraping data gaps before underdelivery check
             has_gaps = await has_scraping_data_gaps(start_block, end_block)
 
+            skipped_delivery_check = has_gaps
+
             if has_gaps:
                 # Skip underdelivery check - mark all winners as delivered
                 # This prevents unfair banning when validator has incomplete data
@@ -452,6 +463,17 @@ async def process_auctions_async() -> int:
                     end=end_ts,
                 )
                 winners_with_delivery = mark_delivery(winners, hashrates)
+
+            if skipped_delivery_check:
+                underdelivered_hotkeys: list[str] = []
+            else:
+                underdelivered_hotkeys = sorted(
+                    {
+                        winner.get("hotkey")
+                        for winner in winners_with_delivery
+                        if winner.get("hotkey") and not winner.get("delivered", False)
+                    }
+                )
 
             delivered_counts = {
                 True: sum(1 for x in winners_with_delivery if x.get("delivered")),
@@ -532,6 +554,9 @@ async def process_auctions_async() -> int:
                 end_block=end_block,
                 commitments_count=len(bids_by_hotkey),
                 winners_with_delivery=delivered_winners,
+                skipped_delivery_check=skipped_delivery_check,
+                underdelivered_hotkeys=underdelivered_hotkeys,
+                banned_hotkeys=sorted(consensus_banned_hotkeys),
                 hashp_usdc_fp18=hashp_usdc_fp18,
                 alpha_tao_fp18=alpha_tao_fp18,
                 tao_usdc_fp18=tao_usdc_fp18,

@@ -30,7 +30,19 @@ class AuctionResult(models.Model):
     start_block = models.BigIntegerField(help_text="Auction window start block")
     end_block = models.BigIntegerField(help_text="Auction window end block", unique=True)
     commitments_count = models.IntegerField(default=0)
+    skipped_delivery_check = models.BooleanField(
+        default=False,
+        help_text="True when delivery validation was skipped due to scraping gaps",
+    )
     winners = models.JSONField(default=list, help_text="Delivered winners with hashrate and price multiplier")
+    underdelivered_hotkeys = models.JSONField(
+        default=list,
+        help_text="Unique hotkeys that failed delivery checks during this window",
+    )
+    banned_hotkeys = models.JSONField(
+        default=list,
+        help_text="Hotkeys banned from this window after ban consensus",
+    )
     hashp_usdc = models.DecimalField(
         max_digits=30,
         decimal_places=18,
