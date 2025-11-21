@@ -83,6 +83,16 @@ uv run manage.py migrate
 uv run manage.py runserver
 ```
 
+### Optional: expose Postgres to the host
+
+The default compose stack keeps the database internal to the Docker network.  
+Set `POSTGRES_HOST_PORT` in `envs/dev/.env` (or your root `.env`) to the host port you want to publish (`8432` by default).  
+Clearing `POSTGRES_HOST_PORT` prevents any host binding.
+
+When you set `POSTGRES_READONLY_USER` and `POSTGRES_READONLY_PASSWORD`, the `db-readonly-user`
+helper container automatically creates/updates that login with SELECT-only permissions so you can
+safely share the exposed port.
+
 # Setup production environment (git deployment)
 
 <details>
