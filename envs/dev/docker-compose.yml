@@ -22,7 +22,61 @@ services:
     volumes:
       - ./db/data:/var/lib/postgresql/data
     ports:
-      - ${POSTGRES_PORT}:5432
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-8432}:5432"
+
+  db-readonly-user:
+    image: mirror.gcr.io/postgres:14.0-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_READONLY_USER=${POSTGRES_READONLY_USER:-}
+      - POSTGRES_READONLY_PASSWORD=${POSTGRES_READONLY_PASSWORD:-}
+      - POSTGRES_READONLY_MAX_RETRIES=${POSTGRES_READONLY_MAX_RETRIES:-30}
+      - POSTGRES_READONLY_RETRY_INTERVAL=${POSTGRES_READONLY_RETRY_INTERVAL:-1}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$${POSTGRES_READONLY_USER}" ] || [ -z "$${POSTGRES_READONLY_PASSWORD}" ]; then
+          echo "[readonly-user] env not set, skipping"
+          exec tail -f /dev/null
+        fi
+        export PGPASSWORD="$${POSTGRES_PASSWORD}"
+        echo "[readonly-user] waiting for db on $${POSTGRES_HOST}/$${POSTGRES_DB}"
+        i=0
+        while ! pg_isready -h "$${POSTGRES_HOST}" -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" >/dev/null 2>&1; do
+          i=$$((i+1))
+          if [ "$$i" -ge "$${POSTGRES_READONLY_MAX_RETRIES}" ]; then
+            echo "[readonly-user] database never became ready"
+            exit 1
+          fi
+          sleep "$${POSTGRES_READONLY_RETRY_INTERVAL}"
+        done
+        ro_user_esc=$$(printf '%s' "$${POSTGRES_READONLY_USER}" | sed "s/'/''/g")
+        ro_pass_esc=$$(printf '%s' "$${POSTGRES_READONLY_PASSWORD}" | sed "s/'/''/g")
+        ro_user_ident=$$(printf '%s' "$${POSTGRES_READONLY_USER}" | sed 's/\"/""/g')
+        db_name_ident=$$(printf '%s' "$${POSTGRES_DB}" | sed 's/\"/""/g')
+        PSQ="psql -v ON_ERROR_STOP=1 -h $${POSTGRES_HOST} -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
+        role_exists=$$($$PSQ -tAc "SELECT 1 FROM pg_roles WHERE rolname='$${ro_user_esc}' LIMIT 1")
+        if [ -z "$$role_exists" ]; then
+          $$PSQ -c "CREATE ROLE \"$$ro_user_ident\" WITH LOGIN PASSWORD '$${ro_pass_esc}'"
+        else
+          $$PSQ -c "ALTER ROLE \"$$ro_user_ident\" WITH LOGIN PASSWORD '$${ro_pass_esc}'"
+        fi
+        $$PSQ -c "GRANT CONNECT ON DATABASE \"$$db_name_ident\" TO \"$$ro_user_ident\""
+        $$PSQ -c "GRANT USAGE ON SCHEMA public TO \"$$ro_user_ident\""
+        $$PSQ -c "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"$$ro_user_ident\""
+        $$PSQ -c "GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$$ro_user_ident\""
+        $$PSQ -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO \"$$ro_user_ident\""
+        $$PSQ -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO \"$$ro_user_ident\""
+        echo "[readonly-user] ready"
+        exec tail -f /dev/null
+    restart: "no"
 
 volumes:
   backups:
