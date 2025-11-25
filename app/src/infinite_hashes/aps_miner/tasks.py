@@ -233,7 +233,7 @@ async def _process_window(
         bittensor, subnet, start_block, config.bittensor.netuid
     )
     cbc_seed = auction_utils.cbc_seed_from_hash(start_blk.hash)
-    winners = await select_auction_winners_async(
+    winners, budget_ph = await select_auction_winners_async(
         bittensor,
         config.bittensor.netuid,
         start_block,

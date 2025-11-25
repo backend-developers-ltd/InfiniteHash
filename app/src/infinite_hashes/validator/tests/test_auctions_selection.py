@@ -237,9 +237,10 @@ def _make_selector_wrapper(winners_record: dict[str, list[dict[str, Any]]]):
     async def _selector_wrapper(bt, netuid, start_b, end_b, bids_map, **kw):  # noqa: ARG002
         from infinite_hashes.consensus.bidding import select_auction_winners_async as real
 
-        winners = await real(bt, netuid, start_b, end_b, bids_map, **kw)
+        winners, budget_ph = await real(bt, netuid, start_b, end_b, bids_map, **kw)
         winners_record["winners"] = winners
-        return winners
+        winners_record["budget_ph"] = budget_ph
+        return winners, budget_ph
 
     return _selector_wrapper
 

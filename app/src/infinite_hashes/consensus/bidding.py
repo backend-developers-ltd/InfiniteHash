@@ -130,10 +130,10 @@ async def select_auction_winners_async(
     cbc_max_nodes: int = 0,
     cbc_seed: int | None = 1,
     max_price_multiplier: float = 1.05,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], float]:
     """Deterministically select winning bids within budget using ILP (PuLP/CBC).
 
-    Returns list of winners: {hotkey, hashrate, price}.
+    Returns (winners, budget_ph) where winners = list[{hotkey, hashrate, price}].
     """
 
     prices = await _fetch_prices(bt, netuid, start_block)
@@ -144,7 +144,7 @@ async def select_auction_winners_async(
             start_block=start_block,
             end_block=end_block,
         )
-        return []
+        return [], 0.0
 
     BASE_MINER_SHARE = 0.41  # fraction of block emission allocated to miners pre-split
     share_fp18 = miners_share_fp18
@@ -178,7 +178,7 @@ async def select_auction_winners_async(
             miner_share_per_block=miner_share_per_block,
             share_fraction=share_fraction,
         )
-        return []
+        return [], 0.0
 
     logger.info(
         "Auction budget computed",
@@ -196,12 +196,13 @@ async def select_auction_winners_async(
 
     workers = _build_worker_items(bids_by_hotkey, max_price_multiplier)
     if not workers:
-        return []
+        return [], budget_ph
 
     winners_idx = _solve_ilp_indices(workers, budget_ph, ilp_scale, cbc_max_nodes, cbc_seed)
     sel = [workers[i] for i in sorted(winners_idx)]
     sel.sort(key=lambda t: (t.price_fp, t.hashrate_min, t.name))
-    return [{"hotkey": w.name.split(":", 1)[0], "hashrate": w.hashrate_min, "price": w.price_fp} for w in sel]
+    winners = [{"hotkey": w.name.split(":", 1)[0], "hashrate": w.hashrate_min, "price": w.price_fp} for w in sel]
+    return winners, budget_ph
 
 
 async def _fetch_prices(bt: Any, netuid: int, block_number: int) -> dict[str, int] | None:
