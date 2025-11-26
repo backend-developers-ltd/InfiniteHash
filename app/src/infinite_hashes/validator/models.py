@@ -35,6 +35,21 @@ class AuctionResult(models.Model):
         help_text="True when delivery validation was skipped due to scraping gaps",
     )
     winners = models.JSONField(default=list, help_text="Delivered winners with hashrate and price multiplier")
+    commitments_ph_by_hotkey = models.JSONField(
+        default=dict,
+        help_text="Total committed hashrate per hotkey (PH) for this window",
+    )
+    wins_ph_by_hotkey = models.JSONField(
+        default=dict,
+        help_text="Total winning hashrate per hotkey (PH) for this window",
+    )
+    total_budget_ph = models.DecimalField(
+        max_digits=30,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Estimated auction budget for this window in PH",
+    )
     underdelivered_hotkeys = models.JSONField(
         default=list,
         help_text="Unique hotkeys that failed delivery checks during this window",

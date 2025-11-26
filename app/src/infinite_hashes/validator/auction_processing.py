@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+from decimal import Decimal, InvalidOperation
 
 import structlog
 import turbobt
@@ -263,6 +264,9 @@ async def record_result(
     hashp_usdc_fp18: int | None = None,
     alpha_tao_fp18: int | None = None,
     tao_usdc_fp18: int | None = None,
+    commitments_ph_by_hotkey: dict[str, float] | None = None,
+    wins_ph_by_hotkey: dict[str, float] | None = None,
+    total_budget_ph: float | None = None,
 ) -> None:
     """Record auction result with price consensus for weight calculation.
 
@@ -295,6 +299,9 @@ async def record_result(
         hashp_usdc=hashp_usdc,
         alpha_tao=alpha_tao,
         tao_usdc=tao_usdc,
+        commitments_ph_by_hotkey=commitments_ph_by_hotkey or {},
+        wins_ph_by_hotkey=wins_ph_by_hotkey or {},
+        total_budget_ph=total_budget_ph,
     )
 
 
@@ -314,6 +321,7 @@ async def process_auctions_async() -> int:
             bittensor.head.get(),
             bittensor.subnet(settings.BITTENSOR_NETUID).get(),
         )
+
         current_epoch = subnet.epoch(head.number)
         blocks_per_window = auction_utils.blocks_per_window_default()
         subnet_tempo = subnet.tempo + 1
@@ -413,7 +421,7 @@ async def process_auctions_async() -> int:
             alpha_tao_fp18 = prices.get("ALPHA_TAO") if prices else None
             tao_usdc_fp18 = prices.get("TAO_USDC") if prices else None
 
-            winners = await select_auction_winners_async(
+            winners, budget_ph = await select_auction_winners_async(
                 bittensor,
                 settings.BITTENSOR_NETUID,
                 start_block,
@@ -547,6 +555,34 @@ async def process_auctions_async() -> int:
                 if winner.get("hotkey") not in hotkeys_to_ban and winner.get("delivered", False)
             ]
 
+            # Aggregate commitments and wins in PH
+            commitments_ph_by_hotkey: dict[str, float] = {}
+            for hk, bids in (bids_by_hotkey or {}).items():
+                total = Decimal(0)
+                for hr_str, _price in bids or []:
+                    try:
+                        hr_fp = _parse_decimal_to_fp18_int(str(hr_str))
+                    except ValueError:
+                        continue
+                    total += Decimal(hr_fp) / Decimal(10**18)
+                if total > 0:
+                    commitments_ph_by_hotkey[hk] = float(total)
+
+            wins_ph_by_hotkey: dict[str, float] = {}
+            for winner in delivered_winners:
+                hk = winner.get("hotkey")
+                if not hk:
+                    continue
+                try:
+                    hr_ph = Decimal(str(winner.get("hashrate", 0)))
+                except (InvalidOperation, ValueError):
+                    continue
+                wins_ph_by_hotkey[hk] = float(Decimal(str(wins_ph_by_hotkey.get(hk, 0.0))) + hr_ph)
+
+            # Estimate window budget in PH using price consensus and mechanism share
+            total_budget_ph: float | None = None
+            total_budget_ph = budget_ph if budget_ph and budget_ph > 0 else None
+
             # Store only delivered winners (non-delivered are banned and excluded)
             await record_result(
                 epoch_start=subnet_epoch_start,
@@ -560,6 +596,9 @@ async def process_auctions_async() -> int:
                 hashp_usdc_fp18=hashp_usdc_fp18,
                 alpha_tao_fp18=alpha_tao_fp18,
                 tao_usdc_fp18=tao_usdc_fp18,
+                commitments_ph_by_hotkey=commitments_ph_by_hotkey,
+                wins_ph_by_hotkey=wins_ph_by_hotkey,
+                total_budget_ph=total_budget_ph,
             )
             processed += 1
 
