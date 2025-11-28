@@ -84,7 +84,7 @@ services:
       <<: *logging
 
   app:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:0cfbe7d33dd1cefc9486b259b11ed80553b72b5cf82b6aa2fc5354bb1c09336f
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:5a2a520230f51c5f9a4f7c7f8bb8f9edfd506862cdef97c1314acb1cb917b6b0
     pull_policy: always
     healthcheck:
       test: ["CMD", "./healthcheck.py", "/var/run/gunicorn/gunicorn.sock"]
@@ -115,7 +115,7 @@ services:
       <<: *logging
 
   celery-worker:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:0cfbe7d33dd1cefc9486b259b11ed80553b72b5cf82b6aa2fc5354bb1c09336f
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:5a2a520230f51c5f9a4f7c7f8bb8f9edfd506862cdef97c1314acb1cb917b6b0
     pull_policy: always
     init: true
     healthcheck:
@@ -144,7 +144,7 @@ services:
       <<: *logging
 
   celery-beat:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:0cfbe7d33dd1cefc9486b259b11ed80553b72b5cf82b6aa2fc5354bb1c09336f
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:5a2a520230f51c5f9a4f7c7f8bb8f9edfd506862cdef97c1314acb1cb917b6b0
     pull_policy: always
     init: true
     restart: unless-stopped
