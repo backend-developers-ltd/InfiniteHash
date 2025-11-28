@@ -17,7 +17,7 @@ C_FORCE_ROOT=1 nice celery multi start $QUEUES $OPTIONS \
     -Q:prices prices --concurrency:prices=$CONCURRENCY --max-tasks-per-child:prices=1
 
 # shellcheck disable=2064
-trap "celery multi stop $WORKERS $OPTIONS; exit 0" INT TERM
+trap "celery multi stop $QUEUES $OPTIONS; exit 0" INT TERM
 
 tail -f /var/log/celery-*.log &
 
