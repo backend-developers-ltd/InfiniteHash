@@ -403,10 +403,37 @@ async def process_auctions_async() -> int:
         )
 
         for subnet_epoch_start, start_block, end_block, window_num in candidates:
-            start_blk, bids_by_hotkey, consensus_banned_hotkeys = await auction_utils.fetch_bids_for_start_block(
-                bittensor, subnet, start_block, settings.BITTENSOR_NETUID
-            )
-            cbc_seed = auction_utils.cbc_seed_from_hash(start_blk.hash)
+            try:
+                start_blk, bids_by_hotkey, consensus_banned_hotkeys = await auction_utils.fetch_bids_for_start_block(
+                    bittensor, subnet, start_block, settings.BITTENSOR_NETUID
+                )
+                cbc_seed = auction_utils.cbc_seed_from_hash(start_blk.hash)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Window skipped: unable to fetch bids/start block (likely pruned/unknown block)",
+                    start_block=start_block,
+                    end_block=end_block,
+                    window_number=window_num,
+                    error=str(exc),
+                )
+                await record_result(
+                    epoch_start=subnet_epoch_start,
+                    start_block=start_block,
+                    end_block=end_block,
+                    commitments_count=0,
+                    winners_with_delivery=[],
+                    skipped_delivery_check=True,
+                    underdelivered_hotkeys=[],
+                    banned_hotkeys=[],
+                    hashp_usdc_fp18=None,
+                    alpha_tao_fp18=None,
+                    tao_usdc_fp18=None,
+                    commitments_ph_by_hotkey={},
+                    wins_ph_by_hotkey={},
+                    total_budget_ph=None,
+                )
+                processed += 1
+                continue
 
             # Compute price consensus for weight calculation
             from infinite_hashes.consensus.price import compute_price_consensus
