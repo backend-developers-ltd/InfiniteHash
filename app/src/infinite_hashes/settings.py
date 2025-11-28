@@ -349,6 +349,7 @@ CELERY_TASK_QUEUES = (
     Queue("prices"),
     Queue("dead_letter"),
 )
+CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_DEFAULT_EXCHANGE = "celery"
 CELERY_TASK_DEFAULT_ROUTING_KEY = "default"
 CELERY_TASK_DEFAULT_RATE_LIMIT = "1/s"
