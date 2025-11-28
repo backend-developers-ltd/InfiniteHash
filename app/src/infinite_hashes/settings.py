@@ -391,7 +391,6 @@ PRICE_SOURCES = {
 # External API keys
 TAOSTATS_API_KEY = env.str("TAOSTATS_API_KEY", default="")
 CELERY_TASK_ANNOTATIONS = {"*": {"acks_late": True, "reject_on_worker_lost": True}}
-CELERY_TASK_ROUTES = {"*": {"queue": "celery"}}
 CELERY_TASK_TIME_LIMIT = int(timedelta(minutes=5).total_seconds())
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_WORKER_SEND_TASK_EVENTS = True
