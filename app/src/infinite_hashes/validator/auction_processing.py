@@ -569,7 +569,7 @@ async def process_auctions_async() -> int:
                     commitments_ph_by_hotkey[hk] = float(total)
 
             wins_ph_by_hotkey: dict[str, float] = {}
-            for winner in delivered_winners:
+            for winner in winners:
                 hk = winner.get("hotkey")
                 if not hk:
                     continue

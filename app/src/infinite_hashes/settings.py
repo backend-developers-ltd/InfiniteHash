@@ -341,10 +341,29 @@ CELERY_BEAT_SCHEDULE = {  # type: ignore
     },
 }
 CELERY_TASK_CREATE_MISSING_QUEUES = False
-CELERY_TASK_QUEUES = (Queue("celery"), Queue("worker"), Queue("dead_letter"))
+CELERY_TASK_QUEUES = (
+    Queue("default"),
+    Queue("luxor"),
+    Queue("auctions"),
+    Queue("weights"),
+    Queue("prices"),
+    Queue("dead_letter"),
+)
 CELERY_TASK_DEFAULT_EXCHANGE = "celery"
-CELERY_TASK_DEFAULT_ROUTING_KEY = "celery"
+CELERY_TASK_DEFAULT_ROUTING_KEY = "default"
 CELERY_TASK_DEFAULT_RATE_LIMIT = "1/s"
+CELERY_TASK_ROUTES = {
+    "infinite_hashes.validator.tasks.scrape_luxor": {"queue": "luxor"},
+    "infinite_hashes.validator.tasks.cleanup_old_luxor_snapshots": {"queue": "luxor"},
+    "infinite_hashes.validator.tasks.calculate_weights": {"queue": "weights"},
+    "infinite_hashes.validator.tasks.set_weights": {"queue": "weights"},
+    "infinite_hashes.validator.tasks.calculate_auction_weights": {"queue": "auctions"},
+    "infinite_hashes.validator.tasks.set_auction_weights": {"queue": "auctions"},
+    "infinite_hashes.validator.tasks.process_auctions": {"queue": "auctions"},
+    "infinite_hashes.validator.tasks.publish_local_commitment": {"queue": "auctions"},
+    "infinite_hashes.validator.tasks.scrape_metrics": {"queue": "prices"},
+    "*": {"queue": "default"},
+}
 
 # Price consensus configuration
 PRICE_METRICS = ["TAO_USDC", "ALPHA_TAO", "HASHP_USDC"]
