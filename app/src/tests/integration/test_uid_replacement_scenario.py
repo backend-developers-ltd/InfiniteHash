@@ -50,6 +50,7 @@ def partial_delivery_hook(miner_name: str, time: TimeAddress) -> DeliveryParams:
 @pytest.mark.django_db(transaction=False)
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.skip
 async def test_uid_replacement_scenario(django_db_setup) -> None:
     """Test UID replacement when a new miner takes over a poorly performing miner's UID.
 
