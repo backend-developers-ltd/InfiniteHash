@@ -72,8 +72,8 @@ async def has_scraping_data_gaps(start_block: int, end_block: int) -> bool:
         )
         return True
 
-    # Check for gaps > 7 blocks between consecutive scraping events
-    MAX_GAP_BLOCKS = 7
+    # Check for gaps > 10 blocks between consecutive scraping events
+    MAX_GAP_BLOCKS = 10
     for i in range(1, len(scraping_blocks)):
         gap = scraping_blocks[i] - scraping_blocks[i - 1]
         if gap > MAX_GAP_BLOCKS:
