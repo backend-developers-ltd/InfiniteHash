@@ -327,9 +327,9 @@ CELERY_BEAT_SCHEDULE = {  # type: ignore
     # Luxor hashrate scraper
     "scrape_luxor": {
         "task": "infinite_hashes.validator.tasks.scrape_luxor",
-        "schedule": datetime.timedelta(seconds=30),
+        "schedule": datetime.timedelta(seconds=20),
         "options": {
-            "expires": datetime.timedelta(seconds=30).total_seconds(),
+            "expires": datetime.timedelta(seconds=40).total_seconds(),
         },
     },
     "cleanup_old_luxor_snapshots": {
