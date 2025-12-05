@@ -348,7 +348,9 @@ async def set_weights_async() -> bool:
 
         # Query neurons at current block, not historical validation block
         # (We can't go back in time for neuron state)
-        neurons = {neuron.hotkey: neuron for neuron in await subnet.list_neurons()}
+        neuron_list = await subnet.list_neurons()
+        neurons = {neuron.hotkey: neuron for neuron in neuron_list}
+        neurons_by_uid = {neuron.uid: neuron for neuron in neuron_list}
 
         weights_by_uid = collections.defaultdict[int, float](float)
 
@@ -364,7 +366,24 @@ async def set_weights_async() -> bool:
             batch.scored = True
 
         if not weights_by_uid:
-            return False
+            burn_uid = await get_burn_uid(bittensor, settings.BITTENSOR_NETUID, neuron_list)
+            try:
+                burn_uid_int = int(burn_uid) if burn_uid is not None else None
+            except (TypeError, ValueError):
+                burn_uid_int = None
+
+            if burn_uid_int is None:
+                logger.warning("No weights from Luxor and no burn UID available; skipping weight setting")
+                return False
+
+            if burn_uid_int not in neurons_by_uid:
+                logger.warning(
+                    "Burn UID not found in current neuron set; skipping weight setting", burn_uid=burn_uid_int
+                )
+                return False
+
+            weights_by_uid[burn_uid_int] = 1.0
+            logger.info("No Luxor weights; assigning full weight to burn UID", burn_uid=burn_uid_int)
 
         # Note: subnet.weights.commit() handles u16 normalization and commit/reveal internally
         # This is turbobt's high-level API for mechanism 0 (backward compatibility)
