@@ -728,7 +728,7 @@ async def calculate_auction_weights_async():
 
             for winner in result.winners:
                 hotkey = winner.get("hotkey")
-                hashrate = winner.get("hashrate", 0)
+                delivered_hashrate = winner.get("delivered_hashrate", winner.get("hashrate", 0))
                 price_multiplier_fp18 = winner.get("price", 10**18)  # Default to 1.0 if missing
 
                 if not hotkey:
@@ -736,7 +736,7 @@ async def calculate_auction_weights_async():
 
                 try:
                     # Convert to float
-                    hashrate_ph = float(hashrate)
+                    hashrate_ph = float(delivered_hashrate)
                     price_multiplier = float(price_multiplier_fp18) / (10**18)
 
                     # Payment calculation in ALPHA:
@@ -753,7 +753,7 @@ async def calculate_auction_weights_async():
                         "Failed to calculate payment",
                         window=window_num,
                         hotkey=hotkey,
-                        hashrate=hashrate,
+                        hashrate=delivered_hashrate,
                         error=str(e),
                     )
                     continue

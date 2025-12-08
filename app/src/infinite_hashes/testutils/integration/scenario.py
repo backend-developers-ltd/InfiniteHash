@@ -330,10 +330,13 @@ class SetDeliveryHook(ScenarioEvent):
     Target can be:
     - "miner_0" - applies to all workers of miner_0
     - "miner_0.worker1" - applies only to worker1 of miner_0
+
+    source controls which data source this hook applies to (\"luxor\" or \"proxy\").
     """
 
     target: str  # "miner_name" or "miner_name.worker_identifier"
-    hook: Callable[[str, TimeAddress], DeliveryParams]
+    hook: Callable[[str, TimeAddress], DeliveryParams] | None
+    source: str = "luxor"
 
 
 @dataclass
@@ -471,47 +474,69 @@ class Scenario:
     Attributes:
         num_epochs: Number of validation epochs to simulate
         events: User-defined timeline of events
-        delivery_hooks: Hierarchical hooks (target -> hook)
+        delivery_hooks: Hierarchical hooks (target -> hook) for Luxor
                        Target can be "miner_name" or "miner_name.worker_identifier"
+        delivery_hooks_proxy: Same, but for proxy source
         default_delivery_hook: Fallback hook when no specific hook is configured
+        default_delivery_hook_proxy: Fallback hook for proxy
+        default_delivery_hook_source: Which source the default_delivery_hook applies to ("luxor" or "proxy")
         wallet_dir: Base directory for test wallets
     """
 
     num_epochs: int
     events: list[ScenarioEvent] = field(default_factory=list)
     delivery_hooks: dict[str, DeliveryHook] = field(default_factory=dict)
-    default_delivery_hook: DeliveryHook = default_delivery_hook
+    delivery_hooks_proxy: dict[str, DeliveryHook] = field(default_factory=dict)
+    default_delivery_hook: DeliveryHook | None = default_delivery_hook
+    default_delivery_hook_luxor: DeliveryHook | None = None
+    default_delivery_hook_proxy: DeliveryHook | None = None
+    default_delivery_hook_source: str = "luxor"
     wallet_dir: str = ""
 
-    def get_delivery_hook(self, miner_name: str, worker_identifier: str | None = None) -> DeliveryHook:
-        """Get the delivery hook with hierarchical lookup.
+    def get_delivery_hook(
+        self, source: str, miner_name: str, worker_identifier: str | None = None
+    ) -> DeliveryHook | None:
+        """Get the delivery hook with hierarchical lookup for a given source."""
+        if source not in {"luxor", "proxy"}:
+            raise ValueError(f"unknown source {source}")
 
-        Lookup order:
-        1. "miner_name.worker_identifier" (if worker_identifier provided)
-        2. "miner_name"
-        3. default_delivery_hook
-        """
+        hooks = self.delivery_hooks if source == "luxor" else self.delivery_hooks_proxy
+        default_hook = None
+        if source == self.default_delivery_hook_source:
+            default_hook = self.default_delivery_hook
+        elif source == "proxy":
+            default_hook = self.default_delivery_hook_proxy
+        else:
+            default_hook = self.default_delivery_hook_proxy
+
         # Try worker-specific hook first
         if worker_identifier:
             worker_key = f"{miner_name}.{worker_identifier}"
-            if worker_key in self.delivery_hooks:
-                return self.delivery_hooks[worker_key]
+            if worker_key in hooks:
+                return hooks[worker_key]
 
         # Try miner-level hook
-        if miner_name in self.delivery_hooks:
-            return self.delivery_hooks[miner_name]
+        if miner_name in hooks:
+            return hooks[miner_name]
 
         # Fall back to default
-        return self.default_delivery_hook
+        return default_hook
 
-    def set_delivery_hook(self, target: str, hook: DeliveryHook) -> None:
+    def set_delivery_hook(self, target: str, hook: DeliveryHook | None, source: str = "luxor") -> None:
         """Set the delivery hook for a target (miner or worker).
 
         Target can be:
         - "miner_0" - applies to all workers of miner_0
         - "miner_0.worker1" - applies only to worker1
         """
-        self.delivery_hooks[target] = hook
+        if source not in {"luxor", "proxy"}:
+            raise ValueError(f"unknown source {source}")
+        if hook is None:
+            return
+        if source == "luxor":
+            self.delivery_hooks[target] = hook
+        else:
+            self.delivery_hooks_proxy[target] = hook
 
     def add_event(self, event: ScenarioEvent) -> None:
         """Add an event to the timeline."""

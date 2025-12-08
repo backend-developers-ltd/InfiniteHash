@@ -24,6 +24,7 @@ import structlog
 
 from infinite_hashes.testutils.integration.scenario import (
     AssertWeightsEvent,
+    DeliveryParams,
     RegisterMiner,
     RegisterValidator,
     Scenario,
@@ -38,6 +39,13 @@ from .helpers import compute_expected_weights
 
 logger = structlog.get_logger(__name__)
 
+# Predefined delivery hooks for parametrization
+HOOKS = {
+    "null": None,
+    "perfect": perfect_delivery_hook,
+    "half": lambda _m, _t: DeliveryParams(hashrate_multiplier_range=(0.5, 0.5), dropout_rate=0.0),
+}
+
 
 # ============================================================================
 # Test Scenario
@@ -48,7 +56,17 @@ logger = structlog.get_logger(__name__)
 @pytest.mark.django_db(transaction=False)
 @pytest.mark.integration
 @pytest.mark.slow
-async def test_basic_scenario(django_db_setup) -> None:
+@pytest.mark.parametrize(
+    "default_source,default_hook_key,default_luxor_key,default_proxy_key",
+    [
+        ("luxor", "perfect", "null", "null"),
+        ("proxy", "perfect", "null", "null"),
+        ("luxor", "half", "null", "perfect"),
+    ],
+)
+async def test_basic_scenario(
+    django_db_setup, default_source, default_hook_key, default_luxor_key, default_proxy_key
+) -> None:
     """Basic end-to-end integration test with validators, miners, and auction processing.
 
     Tests the complete auction lifecycle:
@@ -64,7 +82,10 @@ async def test_basic_scenario(django_db_setup) -> None:
     # Create scenario with perfect delivery for all miners (3 epochs)
     scenario = Scenario(
         num_epochs=3,
-        default_delivery_hook=perfect_delivery_hook,
+        default_delivery_hook=HOOKS[default_hook_key],
+        default_delivery_hook_source=default_source,
+        default_delivery_hook_luxor=HOOKS[default_luxor_key],
+        default_delivery_hook_proxy=HOOKS[default_proxy_key],
     )
 
     # Base time: initialization phase (before epoch 0)

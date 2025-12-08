@@ -7,6 +7,7 @@ import structlog
 from django.conf import settings
 
 from infinite_hashes.validator.models import LuxorSnapshot
+from infinite_hashes.validator.worker_windows import _split_worker_id
 
 logger = structlog.get_logger(__name__)
 
@@ -15,21 +16,11 @@ async def get_hashrates_from_snapshots_async(
     subaccount_name: str,
     start: datetime.datetime,
     end: datetime.datetime,
-) -> dict[str, list[list[int]]]:
-    """Get hashrates from scraped Luxor snapshots.
+) -> dict[str, dict[str, int]]:
+    """Get hashrates from scraped Luxor snapshots as averaged per (hotkey, worker).
 
-    For each hotkey, groups snapshots by timestamp and collects all workers'
-    hashrates for that minute as separate values, returning one sample (list) per minute.
-
-    Args:
-        subaccount_name: Luxor subaccount name
-        start: Start datetime (inclusive)
-        end: End datetime (inclusive)
-
-    Returns:
-        Dictionary mapping hotkeys to lists of hashrate samples (in H/s).
-        Each sample is a list of individual worker hashrates at that timestamp.
-        Worker names are truncated to first 48 chars (hotkey) for consistency.
+    For each hotkey, groups snapshots by timestamp and collects each worker's
+    hashrate, returning the average over the window per worker.
     """
     logger.debug(
         "Querying scraped Luxor snapshots",
@@ -55,22 +46,35 @@ async def get_hashrates_from_snapshots_async(
         query_range=(start.isoformat(), end.isoformat()),
     )
 
-    # Group by (hotkey, timestamp) and collect all workers' hashrates as separate values
-    # This allows matching individual worker hashrates to individual commitments
-    by_hotkey_time: dict[str, dict[datetime.datetime, list[int]]] = collections.defaultdict(
-        lambda: collections.defaultdict(list)
+    # Group by (hotkey, timestamp) and collect hashrates per worker
+    by_hotkey_time: dict[str, dict[datetime.datetime, dict[str, int]]] = collections.defaultdict(
+        lambda: collections.defaultdict(dict)
     )
 
     for snapshot in snapshots:
-        hotkey = snapshot.worker_name[:48]
-        # Collect each worker's hashrate separately for this timestamp
-        by_hotkey_time[hotkey][snapshot.snapshot_time].append(snapshot.hashrate)
+        hotkey, worker_suffix = _split_worker_id(snapshot.worker_name)
+        if not hotkey or not worker_suffix:
+            continue
+        by_hotkey_time[hotkey][snapshot.snapshot_time][worker_suffix] = snapshot.hashrate
 
-    # Convert to list of samples per hotkey (sorted by time)
-    # Each sample is a list of worker hashrates at that timestamp
-    hashrates: dict[str, list[list[int]]] = {}
+    # Build averages per worker
+    hashrates: dict[str, dict[str, int]] = {}
     for hotkey, time_dict in by_hotkey_time.items():
-        hashrates[hotkey] = [hrs for _ts, hrs in sorted(time_dict.items())]
+        worker_sums: dict[str, int] = collections.defaultdict(int)
+        worker_counts: dict[str, int] = collections.defaultdict(int)
+        for ts_data in time_dict.values():
+            for worker_suffix, hr in ts_data.items():
+                worker_sums[worker_suffix] += hr
+                worker_counts[worker_suffix] += 1
+
+        worker_avg: dict[str, int] = {}
+        for worker_suffix, total in worker_sums.items():
+            count = worker_counts.get(worker_suffix, 0)
+            if count:
+                worker_avg[worker_suffix] = int(total / count)
+
+        if worker_avg:
+            hashrates[hotkey] = worker_avg
 
     if not hashrates and snapshots:
         logger.warning(
@@ -85,8 +89,8 @@ async def get_hashrates_from_snapshots_async(
         "Retrieved hashrates from snapshots",
         subaccount=subaccount_name,
         hotkeys=len(hashrates),
-        total_datapoints=sum(len(v) for v in hashrates.values()),
-        samples_per_hotkey={k: len(v) for k, v in hashrates.items()},
+        workers_per_hotkey={k: len(v) for k, v in hashrates.items()},
+        total_datapoints=sum(1 for workers in hashrates.values() for _v in workers.values()),
         hotkeys_list=list(hashrates.keys())[:5],
     )
 
