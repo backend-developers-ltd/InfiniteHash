@@ -16,7 +16,7 @@ from .hashrates import get_hashrates_from_snapshots_async
 from .worker_windows import fetch_proxy_hashrate_data, merge_worker_hashrates
 
 logger = structlog.wrap_logger(get_task_logger(__name__))
-DELIVERY_THRESHOLD_FRACTION = 0.0  # Minimum delivered share required to consider winner compliant
+DELIVERY_THRESHOLD_FRACTION = 0.1  # Minimum delivered share required to consider winner compliant
 
 
 async def existing_end_blocks(epoch_start: int | None = None) -> set[int]:
