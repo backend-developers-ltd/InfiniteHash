@@ -9,6 +9,7 @@ The Director:
 """
 
 import datetime as dt
+import json
 import os
 import random
 import shutil
@@ -183,10 +184,38 @@ class Director:
         self.mechanism_split_u16 = list(DEFAULT_MECHANISM_SPLIT)
         self.mechanism_1_share = DEFAULT_MECHANISM_1_SHARE
 
-        # Hierarchical delivery hooks (mutable, can be changed via SetDeliveryHook events)
+        # Hierarchical delivery hooks per source (mutable via SetDeliveryHook events)
         # Keys can be "miner_name" or "miner_name.worker_identifier"
-        self.delivery_hooks: dict[str, DeliveryHook] = dict(scenario.delivery_hooks)
-        self.default_delivery_hook: DeliveryHook = scenario.default_delivery_hook
+        self.delivery_hooks_luxor: dict[str, DeliveryHook] = dict(scenario.delivery_hooks)
+        self.delivery_hooks_proxy: dict[str, DeliveryHook] = dict(scenario.delivery_hooks_proxy)
+
+        # Defaults per source with validation
+        if scenario.default_delivery_hook_source not in {"luxor", "proxy"}:
+            raise ValueError(f"unknown default_delivery_hook_source {scenario.default_delivery_hook_source}")
+
+        # Start with base defaults from default_delivery_hook_source
+        base_luxor = scenario.default_delivery_hook if scenario.default_delivery_hook_source == "luxor" else None
+        base_proxy = scenario.default_delivery_hook if scenario.default_delivery_hook_source == "proxy" else None
+
+        # Apply explicit per-source overrides if provided, but fail if they would overwrite a base
+        if scenario.default_delivery_hook_luxor is not None:
+            if base_luxor is not None and scenario.default_delivery_hook_luxor is not base_luxor:
+                raise ValueError(
+                    "default_delivery_hook_luxor would overwrite default_delivery_hook-derived luxor default"
+                )
+            base_luxor = scenario.default_delivery_hook_luxor
+        if scenario.default_delivery_hook_proxy is not None:
+            if base_proxy is not None and scenario.default_delivery_hook_proxy is not base_proxy:
+                raise ValueError(
+                    "default_delivery_hook_proxy would overwrite default_delivery_hook-derived proxy default"
+                )
+            base_proxy = scenario.default_delivery_hook_proxy
+
+        self.default_delivery_hook_luxor = base_luxor
+        self.default_delivery_hook_proxy = base_proxy
+
+        # Optional file for proxy API stub to read from
+        self.proxy_workers_state_path = os.environ.get("PROXY_WORKERS_STATE")
 
         # Track when validators commit weights for each epoch
         # weight_commit_blocks[epoch][validator_name] = block_number
@@ -200,25 +229,22 @@ class Director:
         self.owner_coldkey: str | None = None
         self.owner_uid: int | None = None
 
-    def get_delivery_hook(self, miner_name: str, worker_identifier: str) -> DeliveryHook:
-        """Get delivery hook with hierarchical lookup.
+    def get_delivery_hook(self, source: str, miner_name: str, worker_identifier: str) -> DeliveryHook | None:
+        """Get delivery hook with hierarchical lookup for a given source (luxor/proxy)."""
+        if source not in {"luxor", "proxy"}:
+            raise ValueError(f"unknown source {source}")
 
-        Lookup order:
-        1. Worker-specific: "miner_name.worker_identifier"
-        2. Miner-level: "miner_name"
-        3. Default hook
-        """
-        # Try worker-specific hook first
+        hooks = self.delivery_hooks_luxor if source == "luxor" else self.delivery_hooks_proxy
+        default_hook = self.default_delivery_hook_luxor if source == "luxor" else self.default_delivery_hook_proxy
+
         worker_key = f"{miner_name}.{worker_identifier}"
-        if worker_key in self.delivery_hooks:
-            return self.delivery_hooks[worker_key]
+        if worker_key in hooks:
+            return hooks[worker_key]
 
-        # Try miner-level hook
-        if miner_name in self.delivery_hooks:
-            return self.delivery_hooks[miner_name]
+        if miner_name in hooks:
+            return hooks[miner_name]
 
-        # Fall back to default
-        return self.default_delivery_hook
+        return default_hook
 
     def time_to_block(self, time: TimeAddress) -> int:
         """Convert TimeAddress to absolute block number.
@@ -753,10 +779,16 @@ class Director:
         - "miner_0" - applies to all workers of miner_0
         - "miner_0.worker1" - applies only to worker1 of miner_0
         """
-        self.delivery_hooks[event.target] = event.hook
+        if event.source == "proxy":
+            if event.hook is not None:
+                self.delivery_hooks_proxy[event.target] = event.hook
+        else:
+            if event.hook is not None:
+                self.delivery_hooks_luxor[event.target] = event.hook
         logger.info(
             "Changed delivery hook",
             target=event.target,
+            source=event.source,
             time=str(event.time),
         )
 
@@ -1026,8 +1058,9 @@ class Director:
         # Scraper captures data every ~1 minute (matching Luxor update frequency)
         tick_seconds = 60
 
-        # Collect snapshot data for all miners in this window
+        # Collect snapshot data for all miners in this window (Luxor) and proxy window data
         snapshot_data = []
+        proxy_window_records = []
         current_ts = window_start_ts
         minute_count = 0
 
@@ -1046,8 +1079,10 @@ class Director:
                     worker_identifier = worker_cfg["identifier"]
 
                     # Get delivery params using hierarchical lookup (worker -> miner -> default)
-                    worker_hook = self.get_delivery_hook(miner_name, worker_identifier)
-                    delivery_params = worker_hook(miner_name, current_time_address)
+                    luxor_hook = self.get_delivery_hook("luxor", miner_name, worker_identifier)
+                    if luxor_hook is None:
+                        continue
+                    delivery_params = luxor_hook(miner_name, current_time_address)
 
                     hashrate_ph = Decimal(worker_cfg["hashrate_ph"])
                     multiplier = Decimal(str(delivery_params.sample_multiplier()))
@@ -1076,6 +1111,30 @@ class Director:
                     )
 
             current_ts += dt.timedelta(seconds=tick_seconds)
+
+        # Build proxy window data (single value per worker, ignore dropout)
+        for miner_name, miner_config in self.miner_configs.items():
+            miner_hotkey = self.miner_neurons[miner_name]["hotkey"]
+            for worker_cfg in miner_config["workers"]:
+                worker_identifier = worker_cfg["identifier"]
+                proxy_hook = self.get_delivery_hook("proxy", miner_name, worker_identifier)
+                if proxy_hook is None:
+                    continue
+
+                delivery_params = proxy_hook(miner_name, TimeAddress(epoch, window, 0))
+                hashrate_ph = Decimal(worker_cfg["hashrate_ph"])
+                multiplier = Decimal(str(delivery_params.sample_multiplier()))
+
+                worker_hashrate_hs = int((hashrate_ph * multiplier * Decimal(10) ** 15).to_integral_value())
+                worker_id = f"{self.luxor_subaccount_mechanism_1}.{miner_hotkey}.{worker_identifier}"
+
+                proxy_window_records.append(
+                    {
+                        "worker_id": worker_id,
+                        "hashrate": worker_hashrate_hs,
+                        "snapshot_time": window_end_ts.isoformat(),
+                    }
+                )
 
         # Generate scraping events (validator heartbeats)
         # Scraping happens every ~30 seconds (every ~2.5 blocks at 12s/block)
@@ -1125,6 +1184,18 @@ class Director:
                 created=result.get("created", 0),
             )
 
+        # Persist proxy window data for the stub API (if configured)
+        if self.proxy_workers_state_path:
+            try:
+                dirpath = os.path.dirname(self.proxy_workers_state_path) or "."
+                os.makedirs(dirpath, exist_ok=True)
+                with open(self.proxy_workers_state_path, "w", encoding="utf-8") as f:
+                    json.dump({"workers": proxy_window_records}, f)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to write proxy workers state", path=self.proxy_workers_state_path, error=str(exc)
+                )
+
         logger.debug(
             "Simulated hashrate for window",
             epoch=epoch,
@@ -1133,6 +1204,7 @@ class Director:
             minutes_covered=minute_count,
             snapshots_count=len(snapshot_data),
             scraping_events_count=len(scraping_events),
+            proxy_workers=len(proxy_window_records),
         )
 
     async def process_window(self, epoch: int, window: int) -> None:

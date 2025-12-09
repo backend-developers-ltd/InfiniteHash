@@ -13,9 +13,10 @@ from infinite_hashes.consensus.price import _parse_decimal_to_fp18_int
 from infinite_hashes.validator.models import AuctionResult, BannedMiner, ValidatorScrapingEvent
 
 from .hashrates import get_hashrates_from_snapshots_async
+from .worker_windows import fetch_proxy_hashrate_data, merge_worker_hashrates
 
 logger = structlog.wrap_logger(get_task_logger(__name__))
-DELIVERY_THRESHOLD_FRACTION = 0.0  # Minimum delivered share required to consider winner compliant
+DELIVERY_THRESHOLD_FRACTION = 0.1  # Minimum delivered share required to consider winner compliant
 
 
 async def existing_end_blocks(epoch_start: int | None = None) -> set[int]:
@@ -123,7 +124,7 @@ async def has_scraping_data_gaps(start_block: int, end_block: int) -> bool:
     return False
 
 
-def mark_delivery(winners: list[dict], hashrates: dict[str, list[list[int]]]) -> list[dict]:
+def mark_delivery(winners: list[dict], hashrates: dict[str, dict[str, int]]) -> list[dict]:
     aggregated_enabled = settings.AGGREGATED_DELIVERIES
 
     # Group winners by hotkey and collect their commitments
@@ -143,109 +144,116 @@ def mark_delivery(winners: list[dict], hashrates: dict[str, list[list[int]]]) ->
         hotkey_commitments[hk].sort(reverse=True)
 
     # Check delivery once per hotkey using per-commitment allocation
-    def _delivered_ok(hk: str) -> bool:
-        vals = hashrates.get(hk, [])
+    def _delivered_ok(hk: str) -> tuple[bool, float, list[dict]]:
+        worker_vals = list(hashrates.get(hk, {}).values())
         commitments = hotkey_commitments[hk]
         total_commitment = sum(commitments)
         prices = hotkey_prices.get(hk, set()) if aggregated_enabled else set()
         use_aggregated = aggregated_enabled and len(prices) <= 1
 
-        if not vals:
+        if not worker_vals:
             logger.debug("No hashrate values for hotkey", hotkey=hk, commitments=commitments)
-            return False
+            return False, 0.0, []
 
-        # For each sample (list of worker hashrates), match workers to commitments
-        # Sort both sample values and commitments descending, then pair and cap
-        total_delivered = 0.0
+        # Single window sample: sort worker hashrates descending
+        sample_ph_list = sorted([v / 1e15 for v in worker_vals], reverse=True)
         sample_details = []
+        delivered_ph = 0.0
+        per_commitment_allocation: list[float] = []
 
-        for sample in vals:
-            # Convert worker hashrates to PH/s and sort descending
-            sample_ph_list = sorted([v / 1e15 for v in sample], reverse=True)
+        if use_aggregated:
+            sample_total_ph = sum(sample_ph_list)
+            delivered_ph = min(sample_total_ph, total_commitment)
+            threshold = DELIVERY_THRESHOLD_FRACTION * total_commitment
+            is_delivered = delivered_ph >= threshold
+            if total_commitment > 0:
+                # Greedily allocate delivered_ph across commitments in descending order
+                remaining = delivered_ph
+                for commitment_ph in commitments:
+                    alloc = min(commitment_ph, remaining)
+                    per_commitment_allocation.append(alloc)
+                    remaining -= alloc
 
-            if use_aggregated:
-                # Aggregate all workers and cap at the total commitment
-                sample_total_ph = sum(sample_ph_list)
-                sample_delivered = min(sample_total_ph, total_commitment)
-                total_delivered += sample_delivered
-
-                sample_details.append(
-                    {
-                        "aggregation_mode": "aggregated",
-                        "workers_ph": sample_ph_list,
-                        "delivered": sample_delivered,
-                        "total_workers_ph": sample_total_ph,
-                        "capped": max(sample_total_ph - total_commitment, 0.0),
-                    }
-                )
-                continue
-
-            # Match each worker's hashrate to a commitment (both sorted descending)
+            sample_details.append(
+                {
+                    "aggregation_mode": "aggregated",
+                    "workers_ph": sample_ph_list,
+                    "delivered": delivered_ph,
+                    "total_workers_ph": sample_total_ph,
+                    "capped": max(sample_total_ph - total_commitment, 0.0),
+                }
+            )
+        else:
             allocated = []
             capped_amount = 0.0
             for i, commitment_ph in enumerate(commitments):
                 if i < len(sample_ph_list):
-                    # Cap worker's delivery at the commitment size
                     alloc = min(sample_ph_list[i], commitment_ph)
-                    # Track how much was capped
                     capped_amount += sample_ph_list[i] - alloc
                 else:
-                    # No worker for this commitment
                     alloc = 0.0
                 allocated.append(alloc)
 
-            # Also track workers beyond commitments count (fully ignored)
             workers_beyond = sum(sample_ph_list[len(commitments) :]) if len(sample_ph_list) > len(commitments) else 0.0
             total_capped = capped_amount + workers_beyond
 
-            sample_delivered = sum(allocated)
-            total_delivered += sample_delivered
+            delivered_ph = sum(allocated)
+            threshold = DELIVERY_THRESHOLD_FRACTION * total_commitment
+            is_delivered = delivered_ph >= threshold
+            per_commitment_allocation = allocated
 
             sample_details.append(
                 {
                     "aggregation_mode": "per_commitment",
                     "workers_ph": sample_ph_list,
                     "allocated": allocated,
-                    "delivered": sample_delivered,
+                    "delivered": delivered_ph,
                     "capped": total_capped,
                     "workers_beyond": workers_beyond,
                 }
             )
-
-        # Average delivered across all samples
-        avg_delivered = total_delivered / len(vals)
-        threshold = DELIVERY_THRESHOLD_FRACTION * total_commitment
-        is_delivered = avg_delivered >= threshold
 
         logger.debug(
             "Delivery check",
             hotkey=hk,
             commitments=commitments,
             total_commitment=total_commitment,
-            samples_count=len(vals),
-            avg_delivered=avg_delivered,
+            samples_count=1,
+            delivered=delivered_ph,
             threshold=threshold,
             is_delivered=is_delivered,
             aggregated_delivery=use_aggregated,
             price_levels=list(prices) if prices else [],
-            sample_details=sample_details[:3] if len(sample_details) > 3 else sample_details,  # Log first 3 samples
+            sample_details=sample_details,
         )
-        return is_delivered
+        return is_delivered, delivered_ph, per_commitment_allocation
 
     # Check each hotkey once and cache the result
-    delivery_status: dict[str, bool] = {}
+    delivery_status: dict[str, tuple[bool, float, list[float]]] = {}
     for hk in hotkey_commitments:
-        delivery_status[hk] = _delivered_ok(hk)
+        delivered, delivered_ph, per_commitment_alloc = _delivered_ok(hk)
+        delivery_status[hk] = (delivered, delivered_ph, per_commitment_alloc)
 
     # Apply the delivery status to all wins for each hotkey
     out: list[dict] = []
+    allocation_cursor: dict[str, int] = {}
+    per_hotkey_allocs: dict[str, list[float]] = {hk: allocs for hk, (_d, _ph, allocs) in delivery_status.items()}
+
     for w in winners:
+        hotkey = w["hotkey"]
+        delivered, delivered_ph, _ = delivery_status[hotkey]
+        allocs = per_hotkey_allocs.get(hotkey, [])
+        idx = allocation_cursor.get(hotkey, 0)
+        delivered_share = allocs[idx] if idx < len(allocs) else (delivered_ph if delivered else 0.0)
+        allocation_cursor[hotkey] = idx + 1
+
         out.append(
             {
-                "hotkey": w["hotkey"],
+                "hotkey": hotkey,
                 "hashrate": w["hashrate"],
                 "price": w["price"],
-                "delivered": delivery_status[w["hotkey"]],
+                "delivered": delivered,
+                "delivered_hashrate": delivered_share,
             }
         )
     return out
@@ -467,12 +475,25 @@ async def process_auctions_async() -> int:
                 start_ts=start_ts.isoformat(),
                 end_ts=end_ts.isoformat(),
             )
+            # Use scraped snapshots for delivery verification
+            hashrates_luxor = await get_hashrates_from_snapshots_async(
+                settings.LUXOR_SUBACCOUNT_NAME_MECHANISM_1,
+                start=start_ts,
+                end=end_ts,
+            )
+
+            proxy_hashrates = await fetch_proxy_hashrate_data(
+                start=start_ts,
+                end=end_ts,
+                proxy_url=settings.PROXY_WORKERS_API_URL,
+            )
+
             # Check for scraping data gaps before underdelivery check
             has_gaps = await has_scraping_data_gaps(start_block, end_block)
 
-            skipped_delivery_check = has_gaps
+            skipped_delivery_check = bool(has_gaps and not proxy_hashrates)
 
-            if has_gaps:
+            if skipped_delivery_check:
                 # Skip underdelivery check - mark all winners as delivered
                 # This prevents unfair banning when validator has incomplete data
                 winners_with_delivery = [
@@ -481,6 +502,7 @@ async def process_auctions_async() -> int:
                         "hashrate": w["hashrate"],
                         "price": w["price"],
                         "delivered": True,  # Assume delivery when data is incomplete
+                        "delivered_hashrate": float(w["hashrate"]),
                     }
                     for w in winners
                 ]
@@ -491,12 +513,11 @@ async def process_auctions_async() -> int:
                     winners_count=len(winners),
                 )
             else:
-                # Use scraped snapshots for delivery verification
-                hashrates = await get_hashrates_from_snapshots_async(
-                    settings.LUXOR_SUBACCOUNT_NAME_MECHANISM_1,
-                    start=start_ts,
-                    end=end_ts,
+                hashrates = merge_worker_hashrates(
+                    luxor_hashrates=hashrates_luxor,
+                    proxy_hashrates=proxy_hashrates,
                 )
+
                 winners_with_delivery = mark_delivery(winners, hashrates)
 
             if skipped_delivery_check:
@@ -596,12 +617,12 @@ async def process_auctions_async() -> int:
                     commitments_ph_by_hotkey[hk] = float(total)
 
             wins_ph_by_hotkey: dict[str, float] = {}
-            for winner in winners:
+            for winner in winners_with_delivery:
                 hk = winner.get("hotkey")
                 if not hk:
                     continue
                 try:
-                    hr_ph = Decimal(str(winner.get("hashrate", 0)))
+                    hr_ph = Decimal(str(winner.get("delivered_hashrate", winner.get("hashrate", 0))))
                 except (InvalidOperation, ValueError):
                     continue
                 wins_ph_by_hotkey[hk] = float(Decimal(str(wins_ph_by_hotkey.get(hk, 0.0))) + hr_ph)

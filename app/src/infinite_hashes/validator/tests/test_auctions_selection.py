@@ -256,7 +256,7 @@ def _make_fake_hashrates(
     below_threshold: set[str],
 ):
     async def _fake_hashrates(subaccount_name, start, end, page_size=100, tick_size=vtasks.TickSize.HOUR):  # noqa: ARG002
-        out: dict[str, list[list[int]]] = {}
+        out: dict[str, dict[str, int]] = {}
         won_by_hotkey: dict[str, float] = {}
         for w in winners_record.get("winners", []):
             won_by_hotkey[w["hotkey"]] = won_by_hotkey.get(w["hotkey"], 0.0) + float(w["hashrate"])  # PH
@@ -265,7 +265,7 @@ def _make_fake_hashrates(
             is_under = hk in below_threshold and requested_ph > 0.0
             delivered_ph = (0.88 if is_under else 0.95) * requested_ph
             delivered_hs = int(delivered_ph * 1e15)
-            out[hk] = [[delivered_hs]]  # List of samples, each sample is list of worker hashrates
+            out[hk] = {"worker": delivered_hs}  # worker-level averages
         return out
 
     return _fake_hashrates

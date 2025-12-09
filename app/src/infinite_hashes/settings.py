@@ -249,6 +249,10 @@ LUXOR_API_KEY_BY_SUBACCOUNT = {
     LUXOR_SUBACCOUNT_NAME_MECHANISM_1: LUXOR_API_KEY_MECHANISM_1,
 }
 
+# Optional proxy workers endpoint (already-scraped window data)
+# Note: path (/api/v1/workers) is appended in code; here we keep the base host.
+PROXY_WORKERS_API_URL = env.str("PROXY_WORKERS_API_URL", default="http://172.236.7.39:8000")
+
 
 VALIDATION_OFFSET = 0.8
 VALIDATION_THRESHOLD = 0.05
