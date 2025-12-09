@@ -17,7 +17,12 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_WORKERS_API = "http://172.236.7.39:8000/api/v1/workers"
+# Path fragment lives here; host/base comes from settings/env.
+WORKERS_ENDPOINT = "/api/v1/workers"
+
+
+def _build_workers_url(base_url: str) -> str:
+    return base_url.rstrip("/") + WORKERS_ENDPOINT
 
 
 def _iso_seconds(ts: dt.datetime) -> str:
@@ -68,7 +73,7 @@ def records_to_worker_hashrates(records: Iterable[Mapping[str, Any]]) -> dict[st
 
 async def fetch_workers_window(
     *,
-    base_url: str = DEFAULT_WORKERS_API,
+    base_url: str | None = None,
     start: dt.datetime,
     end: dt.datetime,
     pattern: str = "*",
@@ -81,6 +86,11 @@ async def fetch_workers_window(
 
     The API is paginated; this helper fetches all pages starting from ``offset``.
     """
+    if not base_url:
+        return []
+
+    url = _build_workers_url(base_url)
+
     params_base = {
         "pattern": pattern,
         "limit": limit,
@@ -99,7 +109,7 @@ async def fetch_workers_window(
     try:
         while True:
             params = {**params_base, "offset": page_offset}
-            resp = await client.get(base_url, params=params)
+            resp = await client.get(url, params=params)
             resp.raise_for_status()
             payload = resp.json()
             page_workers = payload.get("workers", []) or []
@@ -107,7 +117,7 @@ async def fetch_workers_window(
 
             logger.debug(
                 "Fetched workers window page",
-                base_url=base_url,
+                base_url=url,
                 start=params["start_time"],
                 end=params["end_time"],
                 offset=page_offset,
@@ -124,83 +134,6 @@ async def fetch_workers_window(
     finally:
         if close_client:
             await client.aclose()
-
-
-def reconcile_workers(
-    *,
-    luxor_workers: Iterable[Mapping[str, Any]],
-    proxy_workers: Iterable[Mapping[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    """Merge Luxor and proxy workers per rules a/b/c.
-
-    Returns mapping worker_id -> record with a 'source' field set to 'proxy' or 'luxor'.
-    """
-    combined: dict[str, dict[str, Any]] = {}
-
-    # Prefer proxy when overlapping (rule a) and include proxy-only (rule b)
-    for worker in proxy_workers:
-        hotkey, _full_worker_id = _split_worker_id(worker.get("worker_id", ""))
-        if not hotkey:
-            continue
-        combined[hotkey] = {**worker, "source": "proxy"}
-
-    # Add Luxor-only (rule c); skip if proxy already present
-    for worker in luxor_workers:
-        hotkey, _full_worker_id = _split_worker_id(worker.get("worker_id", ""))
-        if not hotkey or hotkey in combined:
-            continue
-        combined[hotkey] = {**worker, "source": "luxor"}
-
-    return combined
-
-
-async def fetch_reconciled_workers(
-    *,
-    start: dt.datetime,
-    end: dt.datetime,
-    luxor_base_url: str = DEFAULT_WORKERS_API,
-    proxy_base_url: str | None = None,
-    pattern: str = "*",
-    limit: int = 500,
-    offset: int = 0,
-    timeout: float = 10.0,
-) -> dict[str, dict[str, Any]]:
-    """Fetch Luxor and proxy worker windows and merge according to rules a/b/c."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        luxor = await fetch_workers_window(
-            base_url=luxor_base_url,
-            start=start,
-            end=end,
-            pattern=pattern,
-            limit=limit,
-            offset=offset,
-            timeout=timeout,
-            client=client,
-        )
-
-        proxy: list[dict[str, Any]] = []
-        if proxy_base_url:
-            proxy = await fetch_workers_window(
-                base_url=proxy_base_url,
-                start=start,
-                end=end,
-                pattern=pattern,
-                limit=limit,
-                offset=offset,
-                timeout=timeout,
-                client=client,
-            )
-
-    merged = reconcile_workers(luxor_workers=luxor, proxy_workers=proxy)
-    logger.debug(
-        "Reconciled workers from luxor and proxy",
-        start=_iso_seconds(start),
-        end=_iso_seconds(end),
-        luxor_count=len(luxor),
-        proxy_count=len(proxy),
-        merged_count=len(merged),
-    )
-    return merged
 
 
 async def fetch_proxy_hashrate_data(
