@@ -141,6 +141,7 @@ async def fetch_proxy_hashrate_data(
     start: dt.datetime,
     end: dt.datetime,
     proxy_url: str | None,
+    pattern: str = "*",
     timeout: float = 10.0,
 ) -> dict[str, dict[str, int]]:
     """Fetch proxy workers window and convert to worker-level hashrates by hotkey.
@@ -155,6 +156,7 @@ async def fetch_proxy_hashrate_data(
             base_url=proxy_url,
             start=start,
             end=end,
+            pattern=pattern,
             timeout=timeout,
         )
         return records_to_worker_hashrates(proxy_records)
