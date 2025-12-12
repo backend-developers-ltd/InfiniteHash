@@ -242,6 +242,9 @@ LUXOR_SUBACCOUNT_NAME = "infinite"  # legacy mechanism 0
 LUXOR_SUBACCOUNT_NAME_MECHANISM_0 = env.str("LUXOR_SUBACCOUNT_NAME_MECHANISM_0", default="infinite")
 LUXOR_SUBACCOUNT_NAME_MECHANISM_1 = env.str("LUXOR_SUBACCOUNT_NAME_MECHANISM_1", default="sn89auction")
 
+# Subaccount to filter proxy workers by (hardcoded, not from env)
+LUXOR_PROXY_FILTER_SUBACCOUNT = "sn89auction"
+
 # Map subaccount names to API keys
 LUXOR_API_KEY_BY_SUBACCOUNT = {
     LUXOR_SUBACCOUNT_NAME: LUXOR_API_KEY_MECHANISM_0,  # legacy points to mechanism 0

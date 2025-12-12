@@ -486,6 +486,7 @@ async def process_auctions_async() -> int:
                 start=start_ts,
                 end=end_ts,
                 proxy_url=settings.PROXY_WORKERS_API_URL,
+                pattern=f"{settings.LUXOR_PROXY_FILTER_SUBACCOUNT}.*.*",
             )
 
             # Check for scraping data gaps before underdelivery check
