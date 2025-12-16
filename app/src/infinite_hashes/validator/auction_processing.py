@@ -608,12 +608,25 @@ async def process_auctions_async() -> int:
             commitments_ph_by_hotkey: dict[str, float] = {}
             for hk, bids in (bids_by_hotkey or {}).items():
                 total = Decimal(0)
-                for hr_str, _price in bids or []:
+                for bid in bids or []:
+                    count = 1
+                    if isinstance(bid, list | tuple) and len(bid) == 3:
+                        hr_str, _price, count = bid
+                    elif isinstance(bid, list | tuple) and len(bid) == 2:
+                        hr_str, _price = bid
+                    else:
+                        continue
                     try:
                         hr_fp = _parse_decimal_to_fp18_int(str(hr_str))
                     except ValueError:
                         continue
-                    total += Decimal(hr_fp) / Decimal(10**18)
+                    try:
+                        c = int(count)
+                    except (TypeError, ValueError):
+                        continue
+                    if c <= 0:
+                        continue
+                    total += (Decimal(hr_fp) / Decimal(10**18)) * Decimal(c)
                 if total > 0:
                     commitments_ph_by_hotkey[hk] = float(total)
 

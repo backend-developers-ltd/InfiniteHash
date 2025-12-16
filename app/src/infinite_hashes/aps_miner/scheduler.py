@@ -86,7 +86,7 @@ def run_scheduler(config_path: str) -> None:
     logger.info(
         "Miner scheduler started",
         config_path=config_path,
-        workers_count=len(config.workers.hashrates),
+        workers_count=config.workers.total_workers(),
         price_multiplier=config.workers.price_multiplier,
     )
 

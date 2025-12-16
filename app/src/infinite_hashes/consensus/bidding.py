@@ -18,52 +18,123 @@ from .price import (
 FP = 10**18
 logger = structlog.get_logger(__name__)
 
+# v2 safety limits:
+# - Max expanded number of workers (sum of COUNT) to bound decoding and ILP size
+# - Max worker hashrate (in PH) to enforce "small worker" commitments (450 TH = 0.45 PH)
+MAX_BIDDING_COMMITMENT_WORKERS = 1000
+MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18 = 450 * 10**15
+
 
 class BiddingCommitment(CompactCommitment):
-    """Compact commitment for bids.
+    """Compact commitment for bids (versioned).
 
-    Logical payload `bids` maps hashrate (decimal str) -> price_fp18 (int).
-    Compact `d` stores the inverted grouping to minimize repetition with
-    minimal decimal notation for values:
-        price_decimal=key1,key2;price_decimal_2=key3;...
+    v=1 (legacy)
+        Logical payload `bids`: list[(hashrate_decimal_str, price_fp18_int)]
+        Compact `d`: price_decimal=hr1,hr2;price_decimal_2=hr3;...
+
+    v=2
+        Logical payload `bids`: list[(algo_str, price_fp18_int, {hashrate_decimal_str: count_int})]
+        Compact `d`: ALGO,PRICE=HR:COUNT,HR:COUNT;...
 
     - Keys (hashrates) are comma-separated within each group and encoded as
       minimal decimal strings (e.g., "1.5", "2").
     - Groups are semicolon-separated.
     - Values are decimal strings (minimal) representing FP18 amounts.
-    - Keys containing any of the separators (';', '=', ',') are skipped for safety.
+    - Invalid keys/values (including any separator collisions like ';', '=', ',') are rejected
+      by raising `ValueError` (i.e., the whole commitment is invalid rather than "best-effort"
+      skipping individual entries).
     - Keys inside groups and groups themselves are sorted deterministically
       (numeric ascending for values, lexicographic for keys).
     """
 
     t: Literal["b"]
-    # Preserve duplicates: list of (hashrate_decimal_str, price_fp18)
-    bids: list[tuple[str, int]] = Field(default_factory=list)
+    # v=1: list[(hashrate_decimal_str, price_fp18)]
+    # v=2: list[(algo_str, price_fp18, {hashrate_decimal_str: count_int})]
+    bids: list[tuple[Any, ...]] = Field(default_factory=list)
 
     # Always use the shortest token
     def _compact_t(self) -> str:
         return "b"
 
     def _d_compact(self) -> str:
+        if int(getattr(self, "v", 1) or 1) >= 2:
+            parts: list[str] = []
+            grouped: dict[tuple[str, int], dict[int, int]] = {}
+            total_count = 0
+
+            for entry in self.bids or []:
+                if not isinstance(entry, tuple | list) or len(entry) != 3:
+                    raise ValueError("invalid v2 bidding payload entry")
+                algo, price, hr_map = entry
+                if not isinstance(algo, str):
+                    raise ValueError("invalid v2 bidding algorithm")
+                if algo != "BTC":
+                    raise ValueError("only BTC bidding is supported")
+                try:
+                    price_fp18 = int(price)
+                except (TypeError, ValueError):
+                    raise ValueError("invalid v2 bidding price")
+                if not isinstance(hr_map, dict):
+                    raise ValueError("invalid v2 bidding hashrate map")
+
+                key = (algo, price_fp18)
+                if key not in grouped:
+                    grouped[key] = {}
+
+                for hr, count in hr_map.items():
+                    if not isinstance(hr, str):
+                        raise ValueError("invalid v2 bidding hashrate")
+                    try:
+                        hr_fp18 = _parse_decimal_to_fp18_int(hr.strip())
+                        c = int(count)
+                    except (ValueError, TypeError):
+                        raise ValueError("invalid v2 bidding hashrate/count")
+                    if hr_fp18 <= 0:
+                        raise ValueError("invalid v2 bidding hashrate")
+                    if hr_fp18 > MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
+                        raise ValueError("v2 bidding hashrate exceeds max worker size")
+                    if c <= 0:
+                        raise ValueError("invalid v2 bidding worker count")
+                    grouped[key][hr_fp18] = grouped[key].get(hr_fp18, 0) + c
+                    total_count += c
+                    if total_count > MAX_BIDDING_COMMITMENT_WORKERS:
+                        raise ValueError("bidding commitment exceeds worker count limit")
+
+            if not grouped:
+                return ""
+
+            for algo, price_fp18 in sorted(grouped.keys(), key=lambda x: (x[0], x[1])):
+                hr_map = grouped[(algo, price_fp18)]
+                if not hr_map:
+                    continue
+                price_str = _fp18_to_min_decimal_str(price_fp18)
+                hr_parts = [
+                    f"{_fp18_to_min_decimal_str(hr_fp18)}:{hr_map[hr_fp18]}" for hr_fp18 in sorted(hr_map.keys())
+                ]
+                if hr_parts:
+                    parts.append(f"{algo},{price_str}={','.join(hr_parts)}")
+
+            return ";".join(parts)
+
         # Invert: price -> list[keys], preserving duplicates
         groups: dict[int, list[str]] = {}
         for entry in self.bids or []:
             if not isinstance(entry, tuple | list) or len(entry) != 2:
-                continue
+                raise ValueError("invalid v1 bidding payload entry")
             k, v = entry
             try:
                 iv = int(v)
             except (TypeError, ValueError):
-                continue
+                raise ValueError("invalid v1 bidding price")
             if not isinstance(k, str):
-                continue
-            # Normalize key as minimal decimal; skip unsafe
+                raise ValueError("invalid v1 bidding hashrate")
+            # Normalize key as minimal decimal; reject unsafe
             if not k or (";" in k or "=" in k or "," in k):
-                continue
+                raise ValueError("invalid v1 bidding hashrate")
             try:
                 key_fp = _parse_decimal_to_fp18_int(k.strip())
             except ValueError:
-                continue
+                raise ValueError("invalid v1 bidding hashrate")
             norm_key = _fp18_to_min_decimal_str(key_fp)
             groups.setdefault(iv, []).append(norm_key)
 
@@ -78,28 +149,92 @@ class BiddingCommitment(CompactCommitment):
 
     @classmethod
     def _from_d_compact(cls, v: int, d: str) -> BiddingCommitment:
+        if int(v or 1) >= 2:
+            bids_v2: list[tuple[str, int, dict[str, int]]] = []
+            total_count = 0
+            if not d or not d.strip():
+                return cls(t="b", bids=[], v=v)
+
+            d = d.strip()
+            for group in d.split(";"):
+                if not group:
+                    raise ValueError("invalid v2 bidding compact format")
+                if "=" not in group:
+                    raise ValueError("invalid v2 bidding compact format")
+
+                left, right = group.split("=", 1)
+                left = left.strip()
+                if not left or "," not in left:
+                    raise ValueError("invalid v2 bidding compact format")
+
+                algo, price_s = left.rsplit(",", 1)
+                algo = algo.strip()
+                price_s = price_s.strip()
+                if algo != "BTC":
+                    raise ValueError("only BTC bidding is supported")
+
+                try:
+                    price = _parse_decimal_to_fp18_int(price_s)
+                except ValueError:
+                    raise ValueError("invalid v2 bidding price")
+
+                hr_map: dict[str, int] = {}
+                for item in right.split(","):
+                    item = item.strip()
+                    if not item or ":" not in item:
+                        raise ValueError("invalid v2 bidding compact format")
+                    hr_s, count_s = item.split(":", 1)
+                    hr_s = hr_s.strip()
+                    count_s = count_s.strip()
+                    try:
+                        count = int(count_s)
+                        hr_fp = _parse_decimal_to_fp18_int(hr_s)
+                        if hr_fp <= 0:
+                            raise ValueError("invalid v2 bidding hashrate")
+                        if hr_fp > MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
+                            raise ValueError("v2 bidding hashrate exceeds max worker size")
+                        hr = _fp18_to_min_decimal_str(hr_fp)
+                    except (ValueError, TypeError):
+                        raise ValueError("invalid v2 bidding hashrate/count")
+                    if count <= 0:
+                        raise ValueError("invalid v2 bidding worker count")
+                    hr_map[hr] = hr_map.get(hr, 0) + count
+                    total_count += count
+                    if total_count > MAX_BIDDING_COMMITMENT_WORKERS:
+                        raise ValueError("bidding commitment exceeds worker count limit")
+
+                if not hr_map:
+                    raise ValueError("invalid v2 bidding compact format")
+                bids_v2.append((algo, price, hr_map))
+
+            return cls(t="b", bids=bids_v2, v=v)
+
         bids: list[tuple[str, int]] = []
-        if d:
+        if d and d.strip():
+            d = d.strip()
             for seg in d.split(";"):
                 if not seg:
-                    continue
+                    raise ValueError("invalid v1 bidding compact format")
                 if "=" not in seg:
-                    continue
+                    raise ValueError("invalid v1 bidding compact format")
                 vs, ks = seg.split("=", 1)
                 vs = vs.strip()
+                ks = ks.strip()
+                if not vs or not ks:
+                    raise ValueError("invalid v1 bidding compact format")
                 try:
                     value = _parse_decimal_to_fp18_int(vs)
                 except ValueError:
-                    continue
+                    raise ValueError("invalid v1 bidding price")
                 for key in ks.split(","):
                     if not key:
-                        continue
+                        raise ValueError("invalid v1 bidding compact format")
                     if ";" in key or "=" in key or "," in key:
-                        continue
+                        raise ValueError("invalid v1 bidding compact format")
                     try:
                         key_fp = _parse_decimal_to_fp18_int(key.strip())
                     except ValueError:
-                        continue
+                        raise ValueError("invalid v1 bidding hashrate")
                     bids.append((_fp18_to_min_decimal_str(key_fp), value))
         return cls(t="b", bids=bids, v=v)
 
@@ -122,7 +257,7 @@ async def select_auction_winners_async(
     netuid: int,
     start_block: int,
     end_block: int,
-    bids_by_hotkey: dict[str, list[tuple[str, int]]],
+    bids_by_hotkey: dict[str, list[tuple[str, int] | tuple[str, int, int]]],
     *,
     miners_share_fp18: int | None = None,
     mechanism_id: int = 1,
@@ -266,18 +401,34 @@ class _WorkerItem:
 
 
 def _build_worker_items(
-    bids_by_hotkey: dict[str, list[tuple[str, int]]], max_price_multiplier: float = 1.05
+    bids_by_hotkey: dict[str, list[tuple[str, int] | tuple[str, int, int]]],
+    max_price_multiplier: float = 1.05,
 ) -> list[_WorkerItem]:
     items: list[_WorkerItem] = []
     max_price_fp18 = int(max_price_multiplier * FP)
 
     for hk, bids in (bids_by_hotkey or {}).items():
-        for hr_str, price_fp in bids or []:
+        for bid in bids or []:
+            count = 1
+            if len(bid) == 3:
+                hr_str, price_fp, count = bid
+            elif len(bid) == 2:
+                hr_str, price_fp = bid
+            else:
+                continue
+
             try:
                 hr_fp = _parse_decimal_to_fp18_int(hr_str)
             except ValueError:
                 continue
             if hr_fp <= 0:
+                continue
+
+            try:
+                count_int = int(count)
+            except (TypeError, ValueError):
+                continue
+            if count_int <= 0:
                 continue
 
             # Filter out bids with price > MAX_PRICE_MULTIPLIER
@@ -287,16 +438,19 @@ def _build_worker_items(
             margin = max(0.0, float(price_fp) / FP)
             raw_ph = float(hr_fp) / FP
             eff_cost = raw_ph * margin
-            items.append(
-                _WorkerItem(
-                    name=f"{hk}:{_fp18_to_min_decimal_str(hr_fp)}",
-                    raw_ph=raw_ph,
-                    margin_bid=margin,
-                    eff_cost_ph=eff_cost,
-                    price_fp=int(price_fp),
-                    hashrate_min=_fp18_to_min_decimal_str(hr_fp),
+            hashrate_min = _fp18_to_min_decimal_str(hr_fp)
+            name = f"{hk}:{hashrate_min}"
+            for _ in range(count_int):
+                items.append(
+                    _WorkerItem(
+                        name=name,
+                        raw_ph=raw_ph,
+                        margin_bid=margin,
+                        eff_cost_ph=eff_cost,
+                        price_fp=int(price_fp),
+                        hashrate_min=hashrate_min,
+                    )
                 )
-            )
     return items
 
 

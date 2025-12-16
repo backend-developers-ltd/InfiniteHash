@@ -23,6 +23,7 @@ import pytest
 import structlog
 
 from infinite_hashes.testutils.integration.scenario import (
+    AssertCommitmentEvent,
     AssertWeightsEvent,
     DeliveryParams,
     RegisterMiner,
@@ -203,4 +204,82 @@ async def test_basic_scenario(
         scenario,
         random_seed=12345,
         run_suffix="8a7701",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=False)
+@pytest.mark.integration
+@pytest.mark.slow
+async def test_basic_scenario_mixed_v1_v2_miners(django_db_setup) -> None:
+    """End-to-end scenario with one v1 miner and one v2 miner.
+
+    The v2 miner uses multiple same-size workers to exercise the hashrate->count commitment path.
+    """
+    scenario = Scenario(
+        num_epochs=1,
+        default_delivery_hook=HOOKS["perfect"],
+        default_delivery_hook_source="luxor",
+    )
+
+    t0 = TimeAddress(-1, 5, 0)
+    budget_ph = 3.05  # Small burn: total promised cost per window is 3.0 PH.
+
+    scenario.add_events(
+        RegisterValidator(time=t0, name="validator_0", stake=10_000.0),
+        # v1 miner: list of worker sizes (each entry = 1 worker)
+        RegisterMiner(
+            time=t0,
+            name="miner_0",
+            workers=[
+                {"identifier": "w0_a", "hashrate_ph": "0.5", "price_multiplier": "1.0"},
+                {"identifier": "w0_b", "hashrate_ph": "0.6", "price_multiplier": "1.0"},
+            ],
+        ),
+        # v2 miner: hashrate -> count (inferred from duplicate hashrate_ph workers).
+        # Note: v2 currently enforces a max worker size of 0.45 PH.
+        RegisterMiner(
+            time=t0,
+            name="miner_1",
+            workers_commitment_version=2,
+            workers=[
+                {"identifier": "w1_a", "hashrate_ph": "0.45", "price_multiplier": "1.0"},
+                {"identifier": "w1_b", "hashrate_ph": "0.45", "price_multiplier": "1.0"},
+                {"identifier": "w1_c", "hashrate_ph": "0.25", "price_multiplier": "1.0"},
+                {"identifier": "w1_d", "hashrate_ph": "0.25", "price_multiplier": "1.0"},
+                {"identifier": "w1_e", "hashrate_ph": "0.25", "price_multiplier": "1.0"},
+                {"identifier": "w1_f", "hashrate_ph": "0.25", "price_multiplier": "1.0"},
+            ],
+        ),
+        SetPrices(time=t0.b_dt(1), validator_name="validator_0", ph_budget=budget_ph),
+        SetCommitment(time=t0.b_dt(2), miner_name="miner_0"),
+        SetCommitment(time=t0.b_dt(2), miner_name="miner_1"),
+        AssertCommitmentEvent(time=t0.b_dt(3), miner_name="miner_0", expected_compact="1;b;1=0.5,0.6"),
+        AssertCommitmentEvent(time=t0.b_dt(3), miner_name="miner_1", expected_compact="2;b;BTC,1=0.25:4,0.45:2"),
+    )
+
+    expected = compute_expected_weights(
+        budget_ph=budget_ph,
+        miner_0=[(0.5, 1.0, [1] * 6), (0.6, 1.0, [1] * 6)],
+        miner_1=[
+            (0.45, 1.0, [1] * 6),
+            (0.45, 1.0, [1] * 6),
+            (0.25, 1.0, [1] * 6),
+            (0.25, 1.0, [1] * 6),
+            (0.25, 1.0, [1] * 6),
+            (0.25, 1.0, [1] * 6),
+        ],
+    )
+    scenario.add_event(
+        AssertWeightsEvent(
+            time=TimeAddress(1, 0, 1),
+            for_epoch=0,
+            expected_weights={"validator_0": expected},
+        )
+    )
+
+    await ScenarioRunner.execute(
+        scenario,
+        random_seed=12345,
+        run_suffix="mixed_v1_v2",
     )
