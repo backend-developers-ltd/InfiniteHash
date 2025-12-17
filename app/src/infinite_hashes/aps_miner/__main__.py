@@ -51,7 +51,7 @@ def main() -> None:
         "Starting miner",
         network=config.bittensor.network,
         netuid=config.bittensor.netuid,
-        workers=len(config.workers.hashrates),
+        workers=config.workers.total_workers(),
         price_multiplier=config.workers.price_multiplier,
     )
 

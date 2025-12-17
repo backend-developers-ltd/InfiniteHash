@@ -5,6 +5,7 @@ Refactored from Django/Celery to use TOML config and APScheduler.
 """
 
 import asyncio
+from collections import Counter
 from typing import Any
 
 import bittensor_wallet
@@ -12,7 +13,10 @@ import structlog
 import turbobt
 
 from infinite_hashes.auctions import utils as auction_utils
-from infinite_hashes.consensus.bidding import BiddingCommitment, select_auction_winners_async
+from infinite_hashes.consensus.bidding import (
+    BiddingCommitment,
+    select_auction_winners_async,
+)
 from infinite_hashes.consensus.price import _parse_decimal_to_fp18_int
 
 from .callbacks import handle_auction_results
@@ -25,7 +29,7 @@ from .constants import (
     WINDOW_TRANSITION_THRESHOLD,
     WINDOW_TRANSITION_TIMEOUT,
 )
-from .models import AuctionResult, BidResult, Worker
+from .models import AuctionResult, BidResult
 
 logger = structlog.get_logger(__name__)
 
@@ -49,29 +53,20 @@ def _get_hotkey(config: MinerConfig) -> str | None:
         return None
 
 
-def _build_workers_from_config(config: MinerConfig) -> list[Worker]:
-    """Build worker list from configuration."""
-    workers = []
-    for hashrate in config.workers.hashrates:
-        worker = Worker(
-            hashrate_compact=hashrate,
-            price_multiplier=config.workers.price_multiplier,
-            is_active=True,
-        )
-        workers.append(worker)
-    return workers
+def _build_commitment_from_config(config: MinerConfig) -> tuple[str, list[Any]]:
+    price_fp18 = _parse_decimal_to_fp18_int(config.workers.price_multiplier)
 
+    # Auto mode:
+    # - workers.hashrates list => v=1
+    # - workers.worker_sizes dict (or hashrates dict normalized into worker_sizes) => v=2
+    if config.workers.worker_sizes is not None:
+        v2_bids = [("BTC", price_fp18, dict(config.workers.worker_sizes))]
+        commit = BiddingCommitment(t="b", bids=v2_bids, v=2)
+        return commit.to_compact(), v2_bids
 
-def _build_commitment(workers: list[Worker]) -> tuple[str, list[tuple[str, int]]]:
-    """
-    Build commitment from workers.
-
-    Copied from original tasks.py.
-    """
-    bids = [w.bid_tuple() for w in workers if w.is_active]
+    bids = [(hr, price_fp18) for hr in (config.workers.hashrates or [])]
     commit = BiddingCommitment(t="b", bids=bids, v=1)
-    compact = commit.to_compact()
-    return compact, bids
+    return commit.to_compact(), bids
 
 
 def _hashrate_to_fp18(value: Any) -> int | None:
@@ -83,6 +78,79 @@ def _hashrate_to_fp18(value: Any) -> int | None:
     except Exception:
         logger.warning("Failed to normalize hashrate value", value=str(value))
         return None
+
+
+def _reconcile_miner_bids(
+    *,
+    hotkey: str,
+    commitment_bids: list[Any],
+    winners: list[dict[str, Any]],
+) -> list[BidResult]:
+    """Expand this miner's commitment bids and mark them as won/lost.
+
+    Important: winners can include multiple identical (hotkey, hashrate, price) entries
+    (e.g. v2 hashrate->count), so we must treat winners as a multiset.
+    """
+    winner_counts: Counter[tuple[int, int]] = Counter()
+    for item in winners or []:
+        if (item.get("hotkey") or "") != hotkey:
+            continue
+        hashrate_fp = _hashrate_to_fp18(item.get("hashrate"))
+        if hashrate_fp is None:
+            continue
+        try:
+            price_fp18 = int(item.get("price"))
+        except (TypeError, ValueError):
+            continue
+        winner_counts[(hashrate_fp, price_fp18)] += 1
+
+    my_bids: list[BidResult] = []
+    for bid in commitment_bids or []:
+        if not isinstance(bid, list | tuple):
+            continue
+
+        count = 1
+        if len(bid) == 3:
+            hashrate, price_fp18, count = bid
+        elif len(bid) == 2:
+            hashrate, price_fp18 = bid
+        else:
+            continue
+
+        hashrate_str = str(hashrate)
+        worker_hashrate_fp = _hashrate_to_fp18(hashrate_str)
+        try:
+            price_fp18_int = int(price_fp18)
+        except (TypeError, ValueError):
+            logger.warning("Invalid price in commitment bid", price=price_fp18, hotkey=hotkey[:16])
+            continue
+        try:
+            expanded = int(count)
+        except (TypeError, ValueError):
+            logger.warning("Invalid worker count in commitment bid", count=count, hotkey=hotkey[:16])
+            continue
+        if expanded <= 0:
+            logger.warning("Invalid worker count in commitment bid", count=count, hotkey=hotkey[:16])
+            continue
+
+        won_n = 0
+        if worker_hashrate_fp is not None:
+            key = (worker_hashrate_fp, price_fp18_int)
+            available = winner_counts.get(key, 0)
+            if available > 0:
+                won_n = min(expanded, available)
+                remaining = available - won_n
+                if remaining > 0:
+                    winner_counts[key] = remaining
+                else:
+                    del winner_counts[key]
+
+        for _ in range(won_n):
+            my_bids.append(BidResult(hashrate=hashrate_str, price_fp18=price_fp18_int, won=True))
+        for _ in range(expanded - won_n):
+            my_bids.append(BidResult(hashrate=hashrate_str, price_fp18=price_fp18_int, won=False))
+
+    return my_bids
 
 
 async def _get_current_commitment(bittensor: turbobt.Bittensor, netuid: int, hotkey: str) -> str | None:
@@ -150,13 +218,17 @@ async def _ensure_worker_commitment_async(config: MinerConfig, force: bool = Fal
         logger.error("Cannot commit without hotkey")
         return False
 
-    workers = _build_workers_from_config(config)
-    if not workers and not force:
+    worker_count = config.workers.total_workers()
+    if worker_count <= 0 and not force:
         logger.debug("No workers configured; nothing to commit")
         return False
 
     # Build what we would commit
-    compact, bids = _build_commitment(workers)
+    try:
+        compact, bids = _build_commitment_from_config(config)
+    except ValueError:
+        logger.exception("Invalid miner workers config; cannot build commitment")
+        return False
 
     # Check if we need to update by comparing with on-chain commitment
     if not force:
@@ -188,7 +260,7 @@ async def _ensure_worker_commitment_async(config: MinerConfig, force: bool = Fal
         "Miner commitment updated",
         bids=bids,
         force=force,
-        worker_count=len(workers),
+        worker_count=worker_count,
     )
     return True
 
@@ -245,15 +317,6 @@ async def _process_window(
     )
     start_ts, end_ts = await auction_utils.window_timestamps(bittensor, start_block, end_block)
 
-    # Determine which of our bids won
-    my_bids: list[BidResult] = []
-    winner_keys: set[tuple[str, int]] = set()
-    for item in winners:
-        winner_hashrate_fp = _hashrate_to_fp18(item.get("hashrate"))
-        if winner_hashrate_fp is None:
-            continue
-        winner_keys.add((item.get("hotkey"), winner_hashrate_fp))
-
     commitment_bids = bids_by_hotkey.get(hotkey) or []
     if not commitment_bids:
         logger.warning(
@@ -263,19 +326,7 @@ async def _process_window(
             end_block=end_block,
         )
 
-    for bid in commitment_bids:
-        if not isinstance(bid, list | tuple) or len(bid) != 2:
-            continue
-        hashrate, price_fp18 = bid
-        hashrate_str = str(hashrate)
-        worker_hashrate_fp = _hashrate_to_fp18(hashrate_str)
-        try:
-            price_fp18_int = int(price_fp18)
-        except (TypeError, ValueError):
-            logger.warning("Invalid price in commitment bid", price=price_fp18, hotkey=hotkey[:16])
-            continue
-        won = (hotkey, worker_hashrate_fp) in winner_keys if worker_hashrate_fp is not None else False
-        my_bids.append(BidResult(hashrate=hashrate_str, price_fp18=price_fp18_int, won=won))
+    my_bids = _reconcile_miner_bids(hotkey=hotkey, commitment_bids=commitment_bids, winners=winners)
 
     result = AuctionResult(
         epoch_start=epoch_start,

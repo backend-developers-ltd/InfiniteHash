@@ -280,12 +280,14 @@ class RegisterMiner(ScenarioEvent):
         workers: List of worker configurations
         wallet_config: Optional wallet configuration overrides
         replace_miner: Optional miner name to replace (takes over that miner's UID)
+        workers_commitment_version: Write APS miner config to use bidding commitment v1 (legacy) or v2 (counted workers).
     """
 
     name: str
     workers: list[dict[str, Any]]
     wallet_config: dict[str, Any] = field(default_factory=dict)
     replace_miner: str | None = None
+    workers_commitment_version: int = 1
 
 
 @dataclass
@@ -381,6 +383,17 @@ class AssertWeightsEvent(ScenarioEvent):
 
     for_epoch: int
     expected_weights: dict[str, dict[str, float]]  # validator -> {miner -> normalized weight (sum=1.0)}
+
+
+@dataclass
+class AssertCommitmentEvent(ScenarioEvent):
+    """Assert the compact commitment string stored on-chain for a miner.
+
+    Compares the text part of the stored commitment (binary suffix, if any, is ignored).
+    """
+
+    miner_name: str
+    expected_compact: str
 
 
 @dataclass

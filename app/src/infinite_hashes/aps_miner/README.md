@@ -53,12 +53,26 @@ directory = "~/.bittensor/wallets"
 # Single price for all workers
 price_multiplier = "1.0"
 
-# List of worker hashrates (unnamed)
-hashrates = [
-    "100",
-    "200",
-    "150"
-]
+# Hashrates are expressed in PH.
+# v1 (legacy): list of worker hashrates (each entry = 1 worker)
+hashrates = ["0.1", "0.2", "0.3"]
+
+# v2 (recommended): hashrate -> worker count (auto-enables v2 commitments)
+#
+# Inline-table form (must be a single line; no trailing comma):
+# worker_sizes = { "0.25" = 4, "0.45" = 2 }
+#
+# Multi-line form (use this for longer configs):
+# [workers.worker_sizes]
+# "0.25" = 4
+# "0.45" = 2
+#
+# (Alternative spelling also supported: `hashrates` can be a dict for v2)
+# hashrates = { "0.25" = 4, "0.45" = 2 }
+# [workers.hashrates]
+# "0.25" = 4
+# "0.45" = 2
+
 ```
 
 **System Constants** (defined in `constants.py`, not user-configurable):

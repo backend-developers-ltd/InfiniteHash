@@ -26,6 +26,7 @@ import tomli_w
 from django.conf import settings
 
 from infinite_hashes.auctions import utils as auction_utils
+from infinite_hashes.consensus.commitment import split_commitment_binary
 from infinite_hashes.testutils.integration.budget_helper import (
     DEFAULT_MECHANISM_1_SHARE,
     DEFAULT_MECHANISM_SPLIT,
@@ -34,6 +35,7 @@ from infinite_hashes.testutils.integration.budget_helper import (
 )
 
 from .scenario import (
+    AssertCommitmentEvent,
     AssertFalseEvent,
     AssertWeightsEvent,
     ChangeWorkers,
@@ -112,10 +114,22 @@ class Director:
         wallet_name: str,
         wallet_hotkey: str,
         wallet_dir: str,
-        hashrates: list[str],
+        hashrates: list[str] | None = None,
+        worker_sizes: dict[str, int] | None = None,
         price_multiplier: str,
     ) -> None:
         """Write APS miner TOML configuration file."""
+        if hashrates is not None and worker_sizes is not None:
+            raise ValueError("only one of hashrates or worker_sizes may be set")
+        if hashrates is None and worker_sizes is None:
+            raise ValueError("one of hashrates or worker_sizes must be set")
+
+        workers_section: dict[str, Any] = {"price_multiplier": price_multiplier}
+        if worker_sizes is not None:
+            workers_section["worker_sizes"] = worker_sizes
+        else:
+            workers_section["hashrates"] = hashrates
+
         config_data = {
             "bittensor": {
                 "network": network,
@@ -126,10 +140,7 @@ class Director:
                 "hotkey_name": wallet_hotkey,
                 "directory": wallet_dir,
             },
-            "workers": {
-                "price_multiplier": price_multiplier,
-                "hashrates": hashrates,
-            },
+            "workers": workers_section,
         }
         with open(config_path, "wb") as f:
             tomli_w.dump(config_data, f)
@@ -551,8 +562,21 @@ class Director:
         wallet_reloaded = bittensor_wallet.Wallet(name=event.name, hotkey="default", path=wallet_dir)
         hotkey = wallet_reloaded.hotkey.ss58_address
 
-        # Extract hashrates for APS miner TOML config
-        hashrates = [w.get("hashrate_ph") for w in event.workers]
+        # Extract worker sizing for APS miner TOML config
+        hashrates: list[str] = []
+        for worker in event.workers:
+            hashrate = worker.get("hashrate_ph")
+            if hashrate is None:
+                raise ValueError(f"worker entry missing hashrate_ph: {worker}")
+            hashrates.append(str(hashrate))
+        worker_sizes: dict[str, int] | None = None
+        if int(getattr(event, "workers_commitment_version", 1) or 1) >= 2:
+            worker_sizes = {}
+            for hashrate in hashrates:
+                key = str(hashrate).strip()
+                if not key:
+                    raise ValueError(f"worker entry missing hashrate_ph: {hashrate!r}")
+                worker_sizes[key] = worker_sizes.get(key, 0) + 1
 
         # Prepare per-miner working directory
         miner_workdir = tempfile.mkdtemp(prefix=f"aps_miner_{self.run_suffix}_{miner_idx}_")
@@ -565,7 +589,8 @@ class Director:
             wallet_name=event.name,
             wallet_hotkey="default",
             wallet_dir=wallet_dir,
-            hashrates=hashrates,
+            hashrates=None if worker_sizes is not None else hashrates,
+            worker_sizes=worker_sizes,
             price_multiplier=price_multiplier,
         )
 
@@ -1001,6 +1026,43 @@ class Director:
 
             raise AssertionError("\n".join(error_lines))
 
+    async def process_assert_commitment(self, event: AssertCommitmentEvent) -> None:
+        """Assert the on-chain commitment string for a miner at the current block."""
+        miner_neuron = self.miner_neurons.get(event.miner_name)
+        if not miner_neuron:
+            raise RuntimeError(f"miner {event.miner_name} not found in neurons")
+
+        hotkey = miner_neuron.get("hotkey")
+        if not isinstance(hotkey, str) or not hotkey:
+            raise RuntimeError(f"miner {event.miner_name} has invalid hotkey")
+
+        block_number = self.current_head
+        resp = await self.client.get(
+            f"http://{SIM_HOST}:{SIM_HTTP_PORT}/subnets/{self.netuid}/commitments",
+            params={"block": block_number},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        entries = payload.get("entries") or {}
+        raw = entries.get(hotkey)
+        if raw is None:
+            raise AssertionError(f"missing commitment for {event.miner_name} at block {block_number}")
+
+        if isinstance(raw, str) and raw.startswith("0x"):
+            try:
+                raw_coerced: bytes | str = bytes.fromhex(raw[2:])
+            except ValueError as exc:
+                raise AssertionError(f"invalid hex commitment for {event.miner_name}: {raw[:32]}...") from exc
+        else:
+            raw_coerced = str(raw)
+
+        text, _suffix = split_commitment_binary(raw_coerced)
+        if text != event.expected_compact:
+            raise AssertionError(
+                f"commitment mismatch for {event.miner_name} at block {block_number}: "
+                f"expected={event.expected_compact!r} got={text!r}"
+            )
+
     async def process_assert_false(self, event: AssertFalseEvent) -> None:
         """Stop simulation by raising an assertion failure.
 
@@ -1029,6 +1091,8 @@ class Director:
             await self.process_set_delivery_hook(event)
         elif isinstance(event, AssertWeightsEvent):
             await self.process_assert_weights(event)
+        elif isinstance(event, AssertCommitmentEvent):
+            await self.process_assert_commitment(event)
         elif isinstance(event, AssertFalseEvent):
             await self.process_assert_false(event)
         else:

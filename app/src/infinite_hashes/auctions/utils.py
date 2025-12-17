@@ -19,9 +19,16 @@ __all__ = [
 ]
 
 
-def parse_bidding_commitments(commits: dict[str, bytes | str]) -> dict[str, list[tuple[str, int]]]:
-    """Parse bidding commitments, safely handling potential binary suffixes."""
-    out: dict[str, list[tuple[str, int]]] = {}
+def parse_bidding_commitments(
+    commits: dict[str, bytes | str],
+) -> dict[str, list[tuple[str, int] | tuple[str, int, int]]]:
+    """Parse bidding commitments, safely handling potential binary suffixes.
+
+    Returns per-hotkey bid lists in normalized forms:
+    - v1: (hashrate_str, price_fp18_int)
+    - v2: (hashrate_str, price_fp18_int, count_int)
+    """
+    out: dict[str, list[tuple[str, int] | tuple[str, int, int]]] = {}
     for hotkey, raw in commits.items():
         if raw is None:
             continue
@@ -31,7 +38,21 @@ def parse_bidding_commitments(commits: dict[str, bytes | str]) -> dict[str, list
         if model is None:
             continue
 
-        out[hotkey] = list(model.bids or [])
+        try:
+            if int(getattr(model, "v", 1) or 1) >= 2:
+                bids_v2: list[tuple[str, int, int]] = []
+                for algo, price, hr_map in getattr(model, "bids", []) or []:
+                    if algo != "BTC":
+                        raise ValueError("non-BTC bidding is not supported")
+                    price_fp18 = int(price)
+                    for hr, count in (hr_map or {}).items():
+                        bids_v2.append((str(hr), price_fp18, int(count)))
+                out[hotkey] = bids_v2
+            else:
+                out[hotkey] = list(model.bids or [])
+        except (TypeError, ValueError):
+            # Any malformed commitment is ignored as a whole.
+            continue
 
     return out
 
@@ -48,7 +69,7 @@ async def fetch_bids_for_start_block(
     subnet: Any,
     start_block: int,
     netuid: int,
-) -> tuple[Any, dict[str, list[tuple[str, int]]], set[str]]:
+) -> tuple[Any, dict[str, list[tuple[str, int] | tuple[str, int, int]]], set[str]]:
     """Fetch bids for a start block and filter out banned hotkeys based on consensus.
 
     Args:
