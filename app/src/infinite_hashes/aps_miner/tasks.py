@@ -25,6 +25,7 @@ from .constants import (
     AUCTION_ILP_CBC_MAX_NODES,
     AUCTION_INTERVAL,
     BLOCK_TIME,
+    COMMITMENT_RENEW_AGE_SECONDS,
     MAX_PRICE_MULTIPLIER,
     WINDOW_TRANSITION_THRESHOLD,
     WINDOW_TRANSITION_TIMEOUT,
@@ -153,8 +154,59 @@ def _reconcile_miner_bids(
     return my_bids
 
 
-async def _get_current_commitment(bittensor: turbobt.Bittensor, netuid: int, hotkey: str) -> str | None:
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(s, 16) if s.startswith("0x") else int(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _commitment_age_seconds(current_block: int, commitment_block: int) -> int:
+    if current_block <= commitment_block:
+        return 0
+    return (current_block - commitment_block) * BLOCK_TIME
+
+
+async def _get_commitment_block(bittensor: turbobt.Bittensor, netuid: int, hotkey: str) -> int | None:
+    subtensor = getattr(bittensor, "subtensor", None)
+    state = getattr(subtensor, "state", None) if subtensor is not None else None
+    if state is None:
+        return None
+    try:
+        record = await state.getStorage("Commitments.CommitmentOf", netuid, hotkey)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to fetch commitment metadata",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            hotkey=hotkey[:16],
+        )
+        return None
+    if not record:
+        return None
+    if isinstance(record, dict):
+        return _coerce_int(record.get("block"))
+    if isinstance(record, list | tuple) and record:
+        return _coerce_int(record[0])
+    return _coerce_int(getattr(record, "block", None))
+
+
+async def _get_current_commitment(
+    bittensor: turbobt.Bittensor,
+    netuid: int,
+    hotkey: str,
+) -> tuple[str | None, int | None]:
     """Fetch current on-chain commitment for this miner."""
+    commitment_block = await _get_commitment_block(bittensor, netuid, hotkey)
     try:
         subnet = await bittensor.subnet(netuid).get()
         # Fetch commitment data from chain
@@ -166,15 +218,16 @@ async def _get_current_commitment(bittensor: turbobt.Bittensor, netuid: int, hot
             data_type=type(commitment_data).__name__ if commitment_data else "None",
             data_len=len(commitment_data) if commitment_data else 0,
             has_data=bool(commitment_data),
+            commit_block=commitment_block,
         )
 
         if commitment_data:
             # Decode bytes to string
             decoded = commitment_data.decode("utf-8")
             logger.info("Decoded commitment", value=decoded[:50])
-            return decoded
+            return decoded, commitment_block
         logger.info("No existing commitment found on-chain", hotkey=hotkey[:16])
-        return None
+        return None, commitment_block
     except Exception as e:
         logger.warning(
             "Failed to fetch current commitment from chain",
@@ -182,7 +235,7 @@ async def _get_current_commitment(bittensor: turbobt.Bittensor, netuid: int, hot
             error_type=type(e).__name__,
             hotkey=hotkey[:16],
         )
-        return None
+        return None, commitment_block
 
 
 async def _publish_commitment(config: MinerConfig, payload: bytes) -> None:
@@ -233,18 +286,35 @@ async def _ensure_worker_commitment_async(config: MinerConfig, force: bool = Fal
     # Check if we need to update by comparing with on-chain commitment
     if not force:
         async with turbobt.Bittensor(config.bittensor.network) as bittensor:
-            current_commitment = await _get_current_commitment(bittensor, config.bittensor.netuid, hotkey)
+            head = await bittensor.head.get()
+            current_block = getattr(head, "number", None)
+            current_commitment, commitment_block = await _get_current_commitment(
+                bittensor,
+                config.bittensor.netuid,
+                hotkey,
+            )
+            commitment_age_sec = None
+            commitment_stale = False
+            if current_block is not None and commitment_block is not None:
+                commitment_age_sec = _commitment_age_seconds(current_block, commitment_block)
+                commitment_stale = commitment_age_sec >= COMMITMENT_RENEW_AGE_SECONDS
 
             logger.info(
                 "Checking commitment change",
                 current=current_commitment[:50] if current_commitment else None,
                 new=compact[:50],
                 changed=(current_commitment != compact),
+                current_block=current_block,
+                commitment_block=commitment_block,
+                commitment_age_sec=commitment_age_sec,
+                commitment_stale=commitment_stale,
             )
 
-            if current_commitment == compact:
+            if current_commitment == compact and not commitment_stale:
                 logger.info("Commitment unchanged; skipping update")
                 return False
+            if current_commitment == compact and commitment_stale:
+                logger.info("Commitment stale; refreshing", commitment_age_sec=commitment_age_sec)
             else:
                 logger.info(
                     "Commitment changed, will update",

@@ -13,6 +13,7 @@ MAX_PRICE_MULTIPLIER = 1.05  # Maximum acceptable price multiplier for bids
 
 # Scheduler intervals (in seconds)
 COMMITMENT_INTERVAL = 300  # 5 minutes
+COMMITMENT_RENEW_AGE_SECONDS = 24 * 60 * 60  # 1 day
 AUCTION_INTERVAL = 60  # 1 minute
 JOB_TIMEOUT = 120  # 2 minutes
 
