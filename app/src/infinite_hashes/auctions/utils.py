@@ -1,10 +1,13 @@
 import asyncio
 from typing import Any
 
+import structlog
 import turbobt
 
 from infinite_hashes.consensus.bidding import BiddingCommitment
 from infinite_hashes.consensus.parser import parse_commitment
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "parse_bidding_commitments",
@@ -17,6 +20,10 @@ __all__ = [
     "current_validation_window",
     "validation_epoch_for_subnet_epoch",
 ]
+
+COMMITMENT_MAX_AGE_DAYS = 7
+COMMITMENT_MAX_AGE_SECONDS = COMMITMENT_MAX_AGE_DAYS * 24 * 60 * 60
+COMMITMENT_BLOCK_TIME_SECONDS = 12
 
 
 def parse_bidding_commitments(
@@ -57,6 +64,103 @@ def parse_bidding_commitments(
     return out
 
 
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(s, 16) if s.startswith("0x") else int(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _commitment_age_seconds(current_block: int, commitment_block: int) -> int:
+    if current_block <= commitment_block:
+        return 0
+    return (current_block - commitment_block) * COMMITMENT_BLOCK_TIME_SECONDS
+
+
+async def _fetch_commitment_block(
+    state: Any,
+    *,
+    netuid: int,
+    hotkey: str,
+    block_hash: str,
+) -> int | None:
+    try:
+        record = await state.getStorage("Commitments.CommitmentOf", netuid, hotkey, block_hash=block_hash)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to fetch commitment metadata",
+            hotkey=hotkey[:16],
+            error=str(exc),
+        )
+        return None
+
+    if not record:
+        return None
+    if isinstance(record, dict):
+        return _coerce_int(record.get("block"))
+    if isinstance(record, list | tuple) and record:
+        return _coerce_int(record[0])
+    return _coerce_int(getattr(record, "block", None))
+
+
+async def _filter_commitments_by_age(
+    *,
+    state: Any,
+    netuid: int,
+    block_hash: str,
+    current_block: int,
+    bids_by_hotkey: dict[str, list[tuple[str, int] | tuple[str, int, int]]],
+) -> tuple[dict[str, list[tuple[str, int] | tuple[str, int, int]]], set[str]]:
+    if not bids_by_hotkey:
+        return bids_by_hotkey, set()
+
+    hotkeys = list(bids_by_hotkey.keys())
+    blocks = await asyncio.gather(
+        *(
+            _fetch_commitment_block(
+                state,
+                netuid=netuid,
+                hotkey=hotkey,
+                block_hash=block_hash,
+            )
+            for hotkey in hotkeys
+        ),
+        return_exceptions=True,
+    )
+
+    filtered: dict[str, list[tuple[str, int] | tuple[str, int, int]]] = {}
+    stale: set[str] = set()
+    for hotkey, block in zip(hotkeys, blocks):
+        if isinstance(block, Exception):
+            logger.warning(
+                "Failed to fetch commitment block",
+                hotkey=hotkey[:16],
+                error=str(block),
+            )
+            filtered[hotkey] = bids_by_hotkey[hotkey]
+            continue
+        commitment_block = block
+        if commitment_block is None:
+            filtered[hotkey] = bids_by_hotkey[hotkey]
+            continue
+        age_sec = _commitment_age_seconds(current_block, commitment_block)
+        if age_sec >= COMMITMENT_MAX_AGE_SECONDS:
+            stale.add(hotkey)
+            continue
+        filtered[hotkey] = bids_by_hotkey[hotkey]
+
+    return filtered, stale
+
+
 def cbc_seed_from_hash(h: str) -> int:
     try:
         return (int(str(h).strip().lstrip("0x")[-16:], 16) % 2147483647) + 1
@@ -87,6 +191,24 @@ async def fetch_bids_for_start_block(
     commits_raw = await subnet.commitments.fetch(block_hash=start_blk.hash)
     bids_by_hotkey = parse_bidding_commitments(commits_raw)
 
+    state = getattr(getattr(bittensor, "subtensor", None), "state", None)
+    if state is not None and bids_by_hotkey:
+        bids_by_hotkey, stale_hotkeys = await _filter_commitments_by_age(
+            state=state,
+            netuid=netuid,
+            block_hash=start_blk.hash,
+            current_block=start_block,
+            bids_by_hotkey=bids_by_hotkey,
+        )
+        if stale_hotkeys:
+            logger.info(
+                "Filtered stale commitments",
+                block=start_block,
+                total_bids=len(commits_raw),
+                stale_count=len(stale_hotkeys),
+                filtered_bids=len(bids_by_hotkey),
+            )
+
     # Compute ban consensus for this block
     banned_hotkeys = await compute_ban_consensus(
         netuid=netuid,
@@ -97,9 +219,6 @@ async def fetch_bids_for_start_block(
     # Filter out bids from banned hotkeys
     if banned_hotkeys:
         filtered_bids = {hotkey: bids for hotkey, bids in bids_by_hotkey.items() if hotkey not in banned_hotkeys}
-        import structlog
-
-        logger = structlog.get_logger(__name__)
         logger.info(
             "Filtered banned hotkeys from bids",
             block=start_block,
