@@ -1,0 +1,15 @@
+diff a/app/src/infinite_hashes/settings.py b/app/src/infinite_hashes/settings.py	(rejected hunks)
+@@ -206,13 +206,11 @@ REDIS_HOST = env("REDIS_HOST")
+ REDIS_PORT = env.int("REDIS_PORT")
+ REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+ 
+-
+ CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+ CONSTANCE_CONFIG = {
+     # "PARAMETER": (default-value, "Help text", type),
+ }
+ 
+-
+ CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="")
+ CELERY_RESULT_BACKEND = env("CELERY_BROKER_URL", default="")  # store results in Redis
+ CELERY_RESULT_EXPIRES = int(timedelta(days=1).total_seconds())  # time until task result deletion
