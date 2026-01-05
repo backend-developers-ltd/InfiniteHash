@@ -29,12 +29,25 @@ class AuctionResult(models.Model):
     epoch_start = models.BigIntegerField(help_text="Epoch start block")
     start_block = models.BigIntegerField(help_text="Auction window start block")
     end_block = models.BigIntegerField(help_text="Auction window end block", unique=True)
+    start_ts = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the window start block",
+    )
+    end_ts = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the window end block",
+    )
     commitments_count = models.IntegerField(default=0)
     skipped_delivery_check = models.BooleanField(
         default=False,
         help_text="True when delivery validation was skipped due to scraping gaps",
     )
-    winners = models.JSONField(default=list, help_text="Delivered winners with hashrate and price multiplier")
+    winners = models.JSONField(
+        default=list,
+        help_text="Winners with delivery metadata (delivered flag and delivered_hashrate)",
+    )
     commitments_ph_by_hotkey = models.JSONField(
         default=dict,
         help_text="Total committed hashrate per hotkey (PH) for this window",

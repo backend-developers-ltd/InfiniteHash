@@ -643,7 +643,7 @@ async def calculate_auction_weights_async():
             return None
 
         # Calculate weights: ALPHA-based payment calculation
-        # Note: Auction results only contain delivered winners (non-delivered are banned and filtered during auction processing)
+        # Auction results include delivery metadata; only delivered winners are used for weights.
         #
         # Algorithm:
         # 1. For each window: compute payment in ALPHA = delivered_hashrate * hashp_usdc * price_multiplier / alpha_usdc * window_fraction
@@ -727,6 +727,8 @@ async def calculate_auction_weights_async():
             window_spent_alpha = 0.0
 
             for winner in result.winners:
+                if winner.get("delivered") is False:
+                    continue
                 hotkey = winner.get("hotkey")
                 delivered_hashrate = winner.get("delivered_hashrate", winner.get("hashrate", 0))
                 price_multiplier_fp18 = winner.get("price", 10**18)  # Default to 1.0 if missing
