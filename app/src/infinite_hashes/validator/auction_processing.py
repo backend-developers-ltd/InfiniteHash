@@ -264,6 +264,8 @@ async def record_result(
     epoch_start: int,
     start_block: int,
     end_block: int,
+    start_ts: datetime.datetime | None = None,
+    end_ts: datetime.datetime | None = None,
     commitments_count: int,
     winners_with_delivery: list[dict],
     skipped_delivery_check: bool = False,
@@ -299,6 +301,8 @@ async def record_result(
         epoch_start=epoch_start,
         start_block=start_block,
         end_block=end_block,
+        start_ts=start_ts,
+        end_ts=end_ts,
         commitments_count=commitments_count,
         winners=winners_with_delivery,
         skipped_delivery_check=skipped_delivery_check,
@@ -428,6 +432,8 @@ async def process_auctions_async() -> int:
                     epoch_start=subnet_epoch_start,
                     start_block=start_block,
                     end_block=end_block,
+                    start_ts=None,
+                    end_ts=None,
                     commitments_count=0,
                     winners_with_delivery=[],
                     skipped_delivery_check=True,
@@ -597,13 +603,6 @@ async def process_auctions_async() -> int:
                     bid_count=len(hotkey_bids[hotkey]),
                 )
 
-            # Filter out ALL bids from banned hotkeys (only keep delivered from non-banned)
-            delivered_winners = [
-                winner
-                for winner in winners_with_delivery
-                if winner.get("hotkey") not in hotkeys_to_ban and winner.get("delivered", False)
-            ]
-
             # Aggregate commitments and wins in PH
             commitments_ph_by_hotkey: dict[str, float] = {}
             for hk, bids in (bids_by_hotkey or {}).items():
@@ -645,13 +644,16 @@ async def process_auctions_async() -> int:
             total_budget_ph: float | None = None
             total_budget_ph = budget_ph if budget_ph and budget_ph > 0 else None
 
-            # Store only delivered winners (non-delivered are banned and excluded)
+            # Store all winners with delivery metadata for reporting.
+            # Delivered-only filtering happens later when computing weights.
             await record_result(
                 epoch_start=subnet_epoch_start,
                 start_block=start_block,
                 end_block=end_block,
+                start_ts=start_ts,
+                end_ts=end_ts,
                 commitments_count=len(bids_by_hotkey),
-                winners_with_delivery=delivered_winners,
+                winners_with_delivery=winners_with_delivery,
                 skipped_delivery_check=skipped_delivery_check,
                 underdelivered_hotkeys=underdelivered_hotkeys,
                 banned_hotkeys=sorted(consensus_banned_hotkeys),

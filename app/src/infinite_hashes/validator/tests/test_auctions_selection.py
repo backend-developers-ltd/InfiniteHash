@@ -370,9 +370,9 @@ async def test_process_auctions_creates_results_with_delivery_threshold(monkeypa
     ar = await sync_to_async(lambda: AuctionResult.objects.get(end_block=end_block))()
     assert ar.epoch_start == start_block
     assert isinstance(ar.winners, list) and ar.winners
-    # All stored winners should be delivered=True (non-delivered are banned and excluded)
-    delivered_flags = [w.get("delivered", False) for w in ar.winners]
-    assert all(delivered_flags), "All stored winners should have delivered=True"
+    assert len(ar.winners) == len(winners_record.get("winners", []))
+    delivered_flags = [w.get("delivered") for w in ar.winners]
+    assert all(flag is not None for flag in delivered_flags)
     assert ar.skipped_delivery_check is False
 
     stored_underdelivered = set(ar.underdelivered_hotkeys)
@@ -382,7 +382,8 @@ async def test_process_auctions_creates_results_with_delivery_threshold(monkeypa
     assert ar.banned_hotkeys == []
 
     # Aggregate winners per (hotkey, price) and assert against stored expectations
-    expected_data = _aggregate_winners_snapshot(ar.winners, budget_frac)
+    delivered_winners = [w for w in ar.winners if w.get("delivered", False)]
+    expected_data = _aggregate_winners_snapshot(delivered_winners, budget_frac)
     _assert_snapshot_for_budget(budget_frac, expected_data)
 
 
