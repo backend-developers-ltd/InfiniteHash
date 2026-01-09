@@ -356,17 +356,34 @@ def _decode_commitment_storage_key(storage_key: str) -> tuple[int, str] | None:
         return None
 
 
-def _encode_commitment_payload(payload: bytes) -> str:
+def _encode_commitment_payload(payload: bytes, block_number: int) -> str:
     if len(payload) > 136:
         raise ValueError("Commitment payload too large")
     result = bytearray()
     result.extend((0).to_bytes(8, "little"))  # deposit
-    result.extend((0).to_bytes(4, "little"))  # block
+    result.extend(int(block_number).to_bytes(4, "little"))  # block
     result.append(1 << 2)  # Vec length = 1
     variant_index = 1 + len(payload)
     result.append(variant_index)
     result.extend(payload)
     return "0x" + result.hex()
+
+
+def _get_commitment_entry(
+    state: SimulatorState,
+    *,
+    netuid: int,
+    hotkey: str,
+    block_number: int,
+) -> tuple[int, bytes] | None:
+    subnet = state.ensure_subnet(netuid)
+    history = subnet.commitments_by_hotkey.get(hotkey)
+    if not history:
+        return None
+    for commit_block, payload in reversed(history):
+        if commit_block <= block_number:
+            return commit_block, payload
+    return None
 
 
 # --- RPC registration ---------------------------------------------------
@@ -536,18 +553,20 @@ async def rpc_state_query_storage_at(state: SimulatorState, params: Any) -> Any:
     if netuid is None:
         return []
 
-    commitments = state.fetch_commitments(netuid, block_hash=block_hash)
+    block_number, _ = _lookup_block(state, block_hash)
+    if block_number is None:
+        block_number = state.head().number
     changes: list[list[str]] = []
     for storage_key in keys:
         decoded = _decode_commitment_storage_key(storage_key)
         if not decoded:
             continue
         _, hotkey = decoded
-        payload_hex = commitments.get(hotkey)
-        if not payload_hex:
+        entry = _get_commitment_entry(state, netuid=netuid, hotkey=hotkey, block_number=block_number)
+        if not entry:
             continue
-        payload_bytes = bytes.fromhex(payload_hex.removeprefix("0x"))
-        value_hex = _encode_commitment_payload(payload_bytes)
+        commit_block, payload_bytes = entry
+        value_hex = _encode_commitment_payload(payload_bytes, commit_block)
         changes.append([storage_key, value_hex])
 
     if not changes:
@@ -580,12 +599,14 @@ async def rpc_state_get_storage(state: SimulatorState, params: Any) -> Any:
             return None
         netuid, hotkey = decoded
         block_hash = block_hash or state.head().hash
-        commitments = state.fetch_commitments(netuid, block_hash=block_hash)
-        payload_hex = commitments.get(hotkey)
-        if not payload_hex:
+        block_number, _ = _lookup_block(state, block_hash)
+        if block_number is None:
+            block_number = state.head().number
+        entry = _get_commitment_entry(state, netuid=netuid, hotkey=hotkey, block_number=block_number)
+        if not entry:
             return None
-        payload_bytes = bytes.fromhex(payload_hex.removeprefix("0x"))
-        return _encode_commitment_payload(payload_bytes)
+        commit_block, payload_bytes = entry
+        return _encode_commitment_payload(payload_bytes, commit_block)
     if _MECH_EMISSION_SPLIT_PREFIX_HEX and _MECH_EMISSION_SPLIT_TYPE:
         netuid = _extract_twox64concat_netuid(storage_key, _MECH_EMISSION_SPLIT_PREFIX_HEX)
         if netuid is not None:
