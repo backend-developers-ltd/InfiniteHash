@@ -1319,6 +1319,10 @@ class Director:
 
         await self.advance_to_time(next_time)
 
+        # Auto-inject: miners refresh commitments (mirrors APS miner scheduler checks)
+        for miner_name in self.miners:
+            self.miners[miner_name].send_command("SUBMIT_COMMITMENT", {"force": False})
+
         # Auto-inject: validators process auction for completed window
         for validator_name in self.validators:
             self.validators[validator_name].send_command("PROCESS_AUCTION")
