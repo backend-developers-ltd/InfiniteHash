@@ -154,7 +154,7 @@ async def get_hashrates_async(
         samples = int((end - start) / tick_delta) if tick_delta.total_seconds() else 1
 
         page_url = httpx.URL(
-            f"/v1/pool/workers-hashrate-efficiency/BTC/{subaccount_name}",
+            f"/v2/pool/workers-hashrate-efficiency/BTC/{subaccount_name}",
             params={
                 "end_date": end.date().isoformat(),
                 "page_number": 1,
