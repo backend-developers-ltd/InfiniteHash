@@ -57,7 +57,7 @@ async def sim():
 def luxor(httpx_mock):
     httpx_mock.add_response(
         url=httpx.URL(
-            f"https://app.luxor.tech/api/v1/pool/workers-hashrate-efficiency/BTC/{settings.LUXOR_SUBACCOUNT_NAME}",
+            f"https://app.luxor.tech/api/v2/pool/workers-hashrate-efficiency/BTC/{settings.LUXOR_SUBACCOUNT_NAME}",
             params={
                 "end_date": "2025-08-25",
                 "page_number": 1,

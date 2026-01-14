@@ -1041,7 +1041,7 @@ async def fetch_current_luxor_hashrates(
             }
         }
     """
-    url = "/v1/pool/workers/BTC"
+    url = "/v2/pool/workers/BTC"
     params = {
         "subaccount_names": subaccount_name,  # Pass as string, not array
         "status": "ACTIVE",  # Only fetch active workers
