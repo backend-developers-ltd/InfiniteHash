@@ -29,6 +29,7 @@ from infinite_hashes.validator.models import AuctionResult, BannedMiner, LuxorSn
 
 WEIGHT_SETTING_ATTEMPTS = 100
 WEIGHT_SETTING_FAILURE_BACKOFF = 5
+WEIGHT_SETTING_FINALIZATION_TIMEOUT = 120
 
 Hashrates: TypeAlias = dict[str, list[int]]
 
@@ -57,6 +58,7 @@ async def commit_mechanism_weights(
     weights: dict[int, float],
     version_key: int = 0,
     block_time: int = 12,
+    finalization_timeout: int | None = WEIGHT_SETTING_FINALIZATION_TIMEOUT,
 ) -> int:
     """Commit weights for a specific mechanism using commit/reveal scheme.
 
@@ -69,6 +71,7 @@ async def commit_mechanism_weights(
         weights: Dictionary mapping UID to weight (float)
         version_key: Weights version key (default: 0)
         block_time: Block time in seconds (default: 12)
+        finalization_timeout: Seconds to wait for extrinsic finalization, or None for no timeout
 
     Returns:
         Reveal round block number when weights can be revealed
@@ -123,6 +126,10 @@ async def commit_mechanism_weights(
             commit_reveal_version=4,  # CRV3
             wallet=bittensor.wallet,
         )
+        if finalization_timeout is None:
+            await result.wait_for_finalization()
+        else:
+            await asyncio.wait_for(result.wait_for_finalization(), timeout=finalization_timeout)
 
         logger.info(
             "Committed weights for mechanism",
@@ -1020,7 +1027,10 @@ async def set_auction_weights_async() -> bool:
                 version_key=0,
                 wallet=bittensor.wallet,
             )
-            await extrinsic.wait_for_finalization()
+            await asyncio.wait_for(
+                extrinsic.wait_for_finalization(),
+                timeout=WEIGHT_SETTING_FINALIZATION_TIMEOUT,
+            )
 
         await WeightsBatch.objects.abulk_update(
             batches,
