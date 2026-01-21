@@ -11,6 +11,7 @@ import structlog
 import tenacity
 import turbobt
 import turbobt.substrate.exceptions
+import turbobt.subtensor.exceptions
 import websockets
 from asgiref.sync import async_to_sync
 from celery import Task
@@ -972,31 +973,73 @@ async def set_auction_weights_async() -> bool:
             return False
 
         # Commit weights using commit/reveal scheme (same pattern as mechanism 0)
-        async for attempt in tenacity.AsyncRetrying(
-            before_sleep=tenacity.before_sleep_log(logger, logging.ERROR),
-            stop=tenacity.stop_after_attempt(1),
-            wait=tenacity.wait_fixed(WEIGHT_SETTING_FAILURE_BACKOFF),
-        ):
-            with attempt:
-                reveal_round = await commit_mechanism_weights(
-                    bittensor=bittensor,
-                    netuid=settings.BITTENSOR_NETUID,
-                    mechanism_id=1,
-                    weights=weights_by_uid,
-                    version_key=0,
+        reveal_round = None
+        use_direct_set = False
+        try:
+            async for attempt in tenacity.AsyncRetrying(
+                before_sleep=tenacity.before_sleep_log(logger, logging.ERROR),
+                stop=tenacity.stop_after_attempt(1),
+                wait=tenacity.wait_fixed(WEIGHT_SETTING_FAILURE_BACKOFF),
+            ):
+                with attempt:
+                    reveal_round = await commit_mechanism_weights(
+                        bittensor=bittensor,
+                        netuid=settings.BITTENSOR_NETUID,
+                        mechanism_id=1,
+                        weights=weights_by_uid,
+                        version_key=0,
+                    )
+        except Exception as exc:
+            message = str(exc).lower()
+            if isinstance(exc, turbobt.subtensor.exceptions.CommitRevealDisabled) or (
+                "commitrevealdisabled" in message
+                or "commitrevealv3disabled" in message
+                or "commit reveal" in message
+                or "commit/reveal" in message
+            ):
+                logger.warning(
+                    "Commit-reveal disabled for mechanism 1, falling back to set_mechanism_weights",
+                    error=str(exc),
                 )
+                use_direct_set = True
+            else:
+                raise
+
+        if use_direct_set:
+            weights_u16 = normalize_weights_to_u16(weights_by_uid)
+            try:
+                uids, weight_values = zip(*weights_u16.items())
+            except ValueError:
+                uids, weight_values = [], []
+
+            extrinsic = await bittensor.subtensor.subtensor_module.set_mechanism_weights(
+                settings.BITTENSOR_NETUID,
+                list(uids),
+                mechanism_id=1,
+                weights=list(weight_values),
+                version_key=0,
+                wallet=bittensor.wallet,
+            )
+            await extrinsic.wait_for_finalization()
 
         await WeightsBatch.objects.abulk_update(
             batches,
             fields=("scored",),
         )
 
-        logger.info(
-            "Auction weights committed for mechanism 1 (commit/reveal): %s UIDs, reveal_round: %s, batches: [%s]",
-            len(weights_by_uid),
-            reveal_round,
-            ", ".join(str(batch.id) for batch in batches),
-        )
+        if use_direct_set:
+            logger.info(
+                "Auction weights set for mechanism 1 (direct): %s UIDs, batches: [%s]",
+                len(weights_by_uid),
+                ", ".join(str(batch.id) for batch in batches),
+            )
+        else:
+            logger.info(
+                "Auction weights committed for mechanism 1 (commit/reveal): %s UIDs, reveal_round: %s, batches: [%s]",
+                len(weights_by_uid),
+                reveal_round,
+                ", ".join(str(batch.id) for batch in batches),
+            )
 
         return True
 
