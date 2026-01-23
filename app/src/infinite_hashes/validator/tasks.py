@@ -1579,7 +1579,11 @@ def publish_local_commitment(*, event_loop: Any = None):
 
 async def _publish_price_commitment_async(prices: dict[str, int], banned_hotkeys: set[str]):
     """Publish price commitment with ban bitmap to the chain."""
-    from infinite_hashes.consensus.price import PriceCommitment
+    from infinite_hashes.consensus.price import (
+        BUDGET_CAP_FIELD,
+        PriceCommitment,
+        _parse_decimal_to_fp18_int,
+    )
 
     async with turbobt.Bittensor(
         settings.BITTENSOR_NETWORK,
@@ -1601,6 +1605,10 @@ async def _publish_price_commitment_async(prices: dict[str, int], banned_hotkeys
 
         # Create ban bitmap
         bans_bitmap = PriceCommitment.create_ban_bitmap(banned_uids)
+
+        cap_fp18 = _parse_decimal_to_fp18_int(settings.PRICE_COMMITMENT_BUDGET_CAP)
+        prices = dict(prices)
+        prices[BUDGET_CAP_FIELD] = cap_fp18
 
         # Create commitment with prices and bans
         commit = PriceCommitment(t="p", prices=prices, bans=bans_bitmap, v=1)

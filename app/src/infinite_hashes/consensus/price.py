@@ -12,6 +12,8 @@ from .commitment import CompactCommitment, join_commitment_binary, split_commitm
 
 logger = structlog.get_logger(__name__)
 
+BUDGET_CAP_FIELD = "cap"
+
 
 class PriceCommitment(CompactCommitment):
     # Compact type discriminator 'p' only
