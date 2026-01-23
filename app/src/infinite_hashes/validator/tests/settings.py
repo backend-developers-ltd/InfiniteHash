@@ -10,6 +10,7 @@ BITTENSOR_NETUID = 388
 BITTENSOR_NETWORK = "local"
 BITTENSOR_WALLET_HOTKEY_NAME = "default"
 BITTENSOR_WALLET_NAME = "default"
+PRICE_COMMITMENT_BUDGET_CAP = "1.0"
 
 # For API integration tests, use separate _FOR_TESTS env vars
 # Otherwise use dummy values for unit tests

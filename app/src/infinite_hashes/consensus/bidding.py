@@ -10,6 +10,7 @@ from infinite_hashes.auctions.mechanism_split import fetch_mechanism_share_fract
 
 from .commitment import CompactCommitment
 from .price import (
+    BUDGET_CAP_FIELD,
     _fp18_to_min_decimal_str,
     _parse_decimal_to_fp18_int,
     compute_price_consensus,
@@ -23,6 +24,9 @@ logger = structlog.get_logger(__name__)
 # - Max worker hashrate (in PH) to enforce "small worker" commitments (450 TH = 0.45 PH)
 MAX_BIDDING_COMMITMENT_WORKERS = 1000
 MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18 = 450 * 10**15
+
+# Optional budget cap from validator commitments (defaults to no cap).
+DEFAULT_BUDGET_CAP = 1.0
 
 
 class BiddingCommitment(CompactCommitment):
@@ -252,6 +256,15 @@ def _fp_div(a: int, b: int) -> int:
     return (a * FP) // b
 
 
+def _budget_cap_from_fp18(cap_fp18: int | None) -> float:
+    if cap_fp18 is None:
+        return DEFAULT_BUDGET_CAP
+    cap = float(cap_fp18) / FP
+    if cap <= 0:
+        return DEFAULT_BUDGET_CAP
+    return cap
+
+
 async def select_auction_winners_async(
     bt: Any,
     netuid: int,
@@ -301,6 +314,8 @@ async def select_auction_winners_async(
         end_block,
         share_fp18,
     )
+    budget_cap = _budget_cap_from_fp18(prices.get(BUDGET_CAP_FIELD))
+    budget_ph_capped = budget_ph * budget_cap
     if budget_ph <= 0:
         logger.warning(
             "Computed non-positive auction budget",
@@ -326,8 +341,11 @@ async def select_auction_winners_async(
         miner_share_per_block=miner_share_per_block,
         share_fraction=share_fraction,
         budget_ph=budget_ph,
+        budget_cap=budget_cap,
+        budget_ph_capped=budget_ph_capped,
         bid_hotkeys=len(bids_by_hotkey or {}),
     )
+    budget_ph = budget_ph_capped
 
     workers = _build_worker_items(bids_by_hotkey, max_price_multiplier)
     if not workers:
@@ -341,7 +359,7 @@ async def select_auction_winners_async(
 
 
 async def _fetch_prices(bt: Any, netuid: int, block_number: int) -> dict[str, int] | None:
-    metrics = ["TAO_USDC", "ALPHA_TAO", "HASHP_USDC"]
+    metrics = ["TAO_USDC", "ALPHA_TAO", "HASHP_USDC", BUDGET_CAP_FIELD]
     res = await compute_price_consensus(netuid, block_number, metrics, bt=bt)
     try:
         tao_usdc = int(res.get("TAO_USDC"))
@@ -349,7 +367,11 @@ async def _fetch_prices(bt: Any, netuid: int, block_number: int) -> dict[str, in
         hashp_usdc = int(res.get("HASHP_USDC"))
     except (TypeError, ValueError):
         return None
-    return {"TAO_USDC": tao_usdc, "ALPHA_TAO": alpha_tao, "HASHP_USDC": hashp_usdc}
+    cap_raw = res.get(BUDGET_CAP_FIELD)
+    cap_fp18 = int(DEFAULT_BUDGET_CAP * FP)
+    if isinstance(cap_raw, int):
+        cap_fp18 = cap_raw
+    return {"TAO_USDC": tao_usdc, "ALPHA_TAO": alpha_tao, "HASHP_USDC": hashp_usdc, BUDGET_CAP_FIELD: cap_fp18}
 
 
 def _compute_budget_ph(

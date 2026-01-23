@@ -17,6 +17,7 @@ mp.set_start_method("spawn", force=True)
 
 # Set Django settings for integration tests
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "infinite_hashes.settings")
+os.environ.setdefault("PRICE_COMMITMENT_BUDGET_CAP", "1.0")
 
 
 class _ProxyWorkersHandler(BaseHTTPRequestHandler):
