@@ -24,9 +24,11 @@ logger = structlog.get_logger(__name__)
 # - Max worker hashrate (in PH) to enforce "small worker" commitments (450 TH = 0.45 PH)
 MAX_BIDDING_COMMITMENT_WORKERS = 1000
 MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18 = 450 * 10**15
+MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18 = 50 * 10**15
 
 # Optional budget cap from validator commitments (defaults to no cap).
 DEFAULT_BUDGET_CAP = 1.0
+ILP_BIG_M_SWITCH_BLOCK = 7405572
 
 
 class BiddingCommitment(CompactCommitment):
@@ -97,6 +99,8 @@ class BiddingCommitment(CompactCommitment):
                         raise ValueError("invalid v2 bidding hashrate")
                     if hr_fp18 > MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
                         raise ValueError("v2 bidding hashrate exceeds max worker size")
+                    if hr_fp18 < MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
+                        raise ValueError("v2 bidding hashrate below min worker size")
                     if c <= 0:
                         raise ValueError("invalid v2 bidding worker count")
                     grouped[key][hr_fp18] = grouped[key].get(hr_fp18, 0) + c
@@ -197,6 +201,8 @@ class BiddingCommitment(CompactCommitment):
                             raise ValueError("invalid v2 bidding hashrate")
                         if hr_fp > MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
                             raise ValueError("v2 bidding hashrate exceeds max worker size")
+                        if hr_fp < MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
+                            raise ValueError("v2 bidding hashrate below min worker size")
                         hr = _fp18_to_min_decimal_str(hr_fp)
                     except (ValueError, TypeError):
                         raise ValueError("invalid v2 bidding hashrate/count")
@@ -274,10 +280,11 @@ async def select_auction_winners_async(
     *,
     miners_share_fp18: int | None = None,
     mechanism_id: int = 1,
-    ilp_scale: int = 1000,
+    ilp_scale: int = 1_000_000,
     cbc_max_nodes: int = 0,
     cbc_seed: int | None = 1,
     max_price_multiplier: float = 1.05,
+    ilp_use_big_m: bool | None = None,
 ) -> tuple[list[dict[str, Any]], float]:
     """Deterministically select winning bids within budget using ILP (PuLP/CBC).
 
@@ -351,7 +358,8 @@ async def select_auction_winners_async(
     if not workers:
         return [], budget_ph
 
-    winners_idx = _solve_ilp_indices(workers, budget_ph, ilp_scale, cbc_max_nodes, cbc_seed)
+    use_big_m = ilp_use_big_m if ilp_use_big_m is not None else start_block >= ILP_BIG_M_SWITCH_BLOCK
+    winners_idx = _solve_ilp_indices(workers, budget_ph, ilp_scale, cbc_max_nodes, cbc_seed, use_big_m=use_big_m)
     sel = [workers[i] for i in sorted(winners_idx)]
     sel.sort(key=lambda t: (t.price_fp, t.hashrate_min, t.name))
     winners = [{"hotkey": w.name.split(":", 1)[0], "hashrate": w.hashrate_min, "price": w.price_fp} for w in sel]
@@ -482,6 +490,8 @@ def _solve_ilp_indices(
     ilp_scale: int,
     cbc_max_nodes: int,
     cbc_seed: int | None,
+    *,
+    use_big_m: bool = False,
 ) -> set[int]:
     import pulp  # type: ignore
 
@@ -504,8 +514,14 @@ def _solve_ilp_indices(
 
     prob = pulp.LpProblem("auction_knap", pulp.LpMaximize)
     x = [pulp.LpVariable(f"x_{k}", lowBound=0, upBound=1, cat=pulp.LpBinary) for k in range(len(keep))]
-    prob += pulp.lpSum(int_costs[k] * x[k] for k in range(len(keep))) <= cap
-    prob += pulp.lpSum(int_vals[k] * x[k] for k in range(len(keep)))
+    cost_expr = pulp.lpSum(int_costs[k] * x[k] for k in range(len(keep)))
+    value_expr = pulp.lpSum(int_vals[k] * x[k] for k in range(len(keep)))
+    prob += cost_expr <= cap
+    if use_big_m:
+        m_weight = cap + 1
+        prob += (value_expr * m_weight) - cost_expr
+    else:
+        prob += value_expr
     options: list[str] = ["threads 1"]
     if cbc_seed is not None and cbc_seed > 0:
         options += [f"randomSeed {int(cbc_seed)}"]
