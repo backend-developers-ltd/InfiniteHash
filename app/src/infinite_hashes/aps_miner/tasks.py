@@ -5,6 +5,7 @@ Refactored from Django/Celery to use TOML config and APScheduler.
 """
 
 import asyncio
+import os
 from collections import Counter
 from typing import Any
 
@@ -14,10 +15,12 @@ import turbobt
 
 from infinite_hashes.auctions import utils as auction_utils
 from infinite_hashes.consensus.bidding import (
+    MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18,
+    MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18,
     BiddingCommitment,
     select_auction_winners_async,
 )
-from infinite_hashes.consensus.price import _parse_decimal_to_fp18_int
+from infinite_hashes.consensus.price import _fp18_to_min_decimal_str, _parse_decimal_to_fp18_int
 
 from .callbacks import handle_auction_results
 from .config import MinerConfig
@@ -57,17 +60,48 @@ def _get_hotkey(config: MinerConfig) -> str | None:
 def _build_commitment_from_config(config: MinerConfig) -> tuple[str, list[Any]]:
     price_fp18 = _parse_decimal_to_fp18_int(config.workers.price_multiplier)
 
-    # Auto mode:
-    # - workers.hashrates list => v=1
-    # - workers.worker_sizes dict (or hashrates dict normalized into worker_sizes) => v=2
+    # Always use v2 commitments.
+    # - workers.worker_sizes dict (or hashrates dict normalized into worker_sizes) => v2
+    # - workers.hashrates list => aggregate into v2 counts
     if config.workers.worker_sizes is not None:
         v2_bids = [("BTC", price_fp18, dict(config.workers.worker_sizes))]
         commit = BiddingCommitment(t="b", bids=v2_bids, v=2)
         return commit.to_compact(), v2_bids
 
-    bids = [(hr, price_fp18) for hr in (config.workers.hashrates or [])]
-    commit = BiddingCommitment(t="b", bids=bids, v=1)
-    return commit.to_compact(), bids
+    allow_v1 = os.getenv("APS_MINER_ALLOW_V1", "").strip().lower() in {"1", "true", "yes", "on"}
+    if allow_v1:
+        bids = [(hr, price_fp18) for hr in (config.workers.hashrates or [])]
+        commit = BiddingCommitment(t="b", bids=bids, v=1)
+        return commit.to_compact(), bids
+
+    worker_sizes: dict[str, int] = {}
+    for hr in config.workers.hashrates or []:
+        hr_fp = _parse_decimal_to_fp18_int(str(hr))
+        if hr_fp <= 0:
+            raise ValueError(f"invalid worker hashrate: {hr}")
+        full = hr_fp // MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18
+        remainder = hr_fp % MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18
+
+        if remainder != 0 and remainder < MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18:
+            if full <= 0:
+                raise ValueError(f"worker hashrate below v2 min size ({MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18}): {hr}")
+            delta = MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18 - remainder
+            adjusted = MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18 - delta
+            full -= 1
+            remainder = MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18
+            adj_key = _fp18_to_min_decimal_str(adjusted)
+            worker_sizes[adj_key] = worker_sizes.get(adj_key, 0) + 1
+
+        if full > 0:
+            full_key = _fp18_to_min_decimal_str(MAX_BIDDING_COMMITMENT_WORKER_SIZE_FP18)
+            worker_sizes[full_key] = worker_sizes.get(full_key, 0) + int(full)
+        if remainder > 0:
+            rem_key = _fp18_to_min_decimal_str(remainder)
+            worker_sizes[rem_key] = worker_sizes.get(rem_key, 0) + 1
+
+    v2_bids = [("BTC", price_fp18, worker_sizes)]
+    commit = BiddingCommitment(t="b", bids=v2_bids, v=2)
+    return commit.to_compact(), v2_bids
 
 
 def _hashrate_to_fp18(value: Any) -> int | None:
