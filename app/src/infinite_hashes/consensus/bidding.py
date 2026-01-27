@@ -29,6 +29,13 @@ MIN_BIDDING_COMMITMENT_WORKER_SIZE_FP18 = 50 * 10**15
 # Optional budget cap from validator commitments (defaults to no cap).
 DEFAULT_BUDGET_CAP = 1.0
 ILP_BIG_M_SWITCH_BLOCK = 7405572
+V2_ONLY_SWITCH_BLOCK = 7414264  # v2-only activation (≈2h after block 7413664)
+
+
+def v2_only_active(block_number: int | None) -> bool:
+    if block_number is None:
+        return False
+    return block_number >= V2_ONLY_SWITCH_BLOCK
 
 
 class BiddingCommitment(CompactCommitment):

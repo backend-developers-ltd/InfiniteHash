@@ -4,7 +4,7 @@ from typing import Any
 import structlog
 import turbobt
 
-from infinite_hashes.consensus.bidding import BiddingCommitment
+from infinite_hashes.consensus.bidding import BiddingCommitment, v2_only_active
 from infinite_hashes.consensus.parser import parse_commitment
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +28,8 @@ COMMITMENT_BLOCK_TIME_SECONDS = 12
 
 def parse_bidding_commitments(
     commits: dict[str, bytes | str],
+    *,
+    block_number: int | None = None,
 ) -> dict[str, list[tuple[str, int] | tuple[str, int, int]]]:
     """Parse bidding commitments, safely handling potential binary suffixes.
 
@@ -43,6 +45,8 @@ def parse_bidding_commitments(
         # Use generic parser with type filtering (auto-discovers "b" token)
         model = parse_commitment(raw, expected_types=[BiddingCommitment])
         if model is None:
+            continue
+        if v2_only_active(block_number) and int(getattr(model, "v", 1) or 1) < 2:
             continue
 
         try:
@@ -189,7 +193,7 @@ async def fetch_bids_for_start_block(
 
     start_blk = await bittensor.block(start_block).get()
     commits_raw = await subnet.commitments.fetch(block_hash=start_blk.hash)
-    bids_by_hotkey = parse_bidding_commitments(commits_raw)
+    bids_by_hotkey = parse_bidding_commitments(commits_raw, block_number=start_block)
 
     state = getattr(getattr(bittensor, "subtensor", None), "state", None)
     if state is not None and bids_by_hotkey:
