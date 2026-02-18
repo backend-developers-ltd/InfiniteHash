@@ -26,8 +26,15 @@ def _resolve_proxy_mode() -> str:
         return PROXY_MODE_IHP
     if raw_mode == PROXY_MODE_BRAIINS:
         return PROXY_MODE_BRAIINS
-    if pools_config_path().exists():
-        return PROXY_MODE_IHP
+
+    configured_pools_path = os.environ.get("APS_MINER_POOLS_CONFIG_PATH", "").strip()
+    if configured_pools_path:
+        try:
+            if pools_config_path().exists():
+                return PROXY_MODE_IHP
+        except OSError:
+            logger.warning("Unable to inspect APS_MINER_POOLS_CONFIG_PATH; falling back to braiins mode")
+
     return PROXY_MODE_BRAIINS
 
 
