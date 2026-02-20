@@ -222,7 +222,7 @@ print(result)
 
 For a full end-to-end manual test with the blockchain simulator, run:
 
-- `python manual_test_miner_compose.py` – builds the miner image (or reuses an override), launches the Docker Compose stack (miner plus Braiins proxy), and validates automatic Braiins profile updates.
+- `python manual_test_miner_compose.py` – builds the miner image (or reuses an override), launches the Docker Compose stack (miner plus IHP proxy stack), and validates automatic `pools.toml` target hashrate updates with proxy reload signaling.
 
 ## Logging
 

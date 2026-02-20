@@ -42,7 +42,6 @@ write_default_ihp_pools() {
     local destination="$1"
     local backup_pool_host="$2"
     local backup_pool_port="$3"
-    local backup_pool_worker_id="$4"
 
     cat > "${destination}" <<EOL
 [pools]
@@ -51,15 +50,7 @@ write_default_ihp_pools() {
 name = "private-backup"
 host = "${backup_pool_host}"
 port = ${backup_pool_port}
-EOL
 
-    if [ -n "${backup_pool_worker_id}" ]; then
-        cat >> "${destination}" <<EOL
-worker_id = "${backup_pool_worker_id}"
-EOL
-    fi
-
-    cat >> "${destination}" <<'EOL'
 [[pools.main]]
 name = "central-proxy"
 host = "stratum.infinitehash.xyz"
@@ -67,7 +58,7 @@ port = 9332
 weight = 1
 
 [extranonce]
-extranonce2_size = 6
+extranonce2_size = 5
 
 [routing]
 rebalance_interval_seconds = 10
@@ -251,11 +242,7 @@ if [ "${PROXY_MODE}" = "ihp" ]; then
         PRIVATE_POOL_PORT=${PRIVATE_POOL_PORT:-${DEFAULT_PRIVATE_POOL_PORT}}
         PRIVATE_POOL_PORT=$(echo "${PRIVATE_POOL_PORT}" | tr -d '[:space:]')
 
-        DEFAULT_PRIVATE_POOL_WORKER_ID="infinite.${HOTKEY_IDENTIFIER}.worker1"
-        read -r -p "Enter IHP backup/private pool worker ID [${DEFAULT_PRIVATE_POOL_WORKER_ID}]: " PRIVATE_POOL_WORKER_ID </dev/tty
-        PRIVATE_POOL_WORKER_ID=${PRIVATE_POOL_WORKER_ID:-${DEFAULT_PRIVATE_POOL_WORKER_ID}}
-
-        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}" "${PRIVATE_POOL_WORKER_ID}"
+        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}"
     else
         echo "Using existing InfiniteHash Proxy pools file at ${NEW_PROXY_POOLS_FILE}"
     fi
