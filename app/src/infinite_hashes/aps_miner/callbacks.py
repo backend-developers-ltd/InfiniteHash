@@ -5,12 +5,37 @@ These functions are called when we determine which workers won/lost auctions.
 Future: integrate with ASIC routing logic.
 """
 
+import os
+
 import structlog
 
 from .brainsproxy import update_routing_weights
 from .models import AuctionResult, BidResult
+from .proxy_routing import pools_config_path, update_subnet_target_hashrate
 
 logger = structlog.get_logger(__name__)
+
+PROXY_MODE_ENV = "APS_MINER_PROXY_MODE"
+PROXY_MODE_IHP = "ihp"
+PROXY_MODE_BRAIINS = "braiins"
+
+
+def _resolve_proxy_mode() -> str:
+    raw_mode = os.environ.get(PROXY_MODE_ENV, "").strip().lower()
+    if raw_mode == PROXY_MODE_IHP:
+        return PROXY_MODE_IHP
+    if raw_mode == PROXY_MODE_BRAIINS:
+        return PROXY_MODE_BRAIINS
+
+    configured_pools_path = os.environ.get("APS_MINER_POOLS_CONFIG_PATH", "").strip()
+    if configured_pools_path:
+        try:
+            if pools_config_path().exists():
+                return PROXY_MODE_IHP
+        except OSError:
+            logger.warning("Unable to inspect APS_MINER_POOLS_CONFIG_PATH; falling back to braiins mode")
+
+    return PROXY_MODE_BRAIINS
 
 
 def handle_auction_results(result: AuctionResult) -> None:
@@ -46,10 +71,14 @@ def handle_auction_results(result: AuctionResult) -> None:
     if lost_bids:
         _handle_lost_bids(lost_bids, result)
 
+    proxy_mode = _resolve_proxy_mode()
     try:
-        update_routing_weights(won_bids, lost_bids)
+        if proxy_mode == PROXY_MODE_IHP:
+            update_subnet_target_hashrate(won_bids, lost_bids)
+        else:
+            update_routing_weights(won_bids, lost_bids)
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to update Braiins routing weights")
+        logger.exception("Failed to update proxy routing", proxy_mode=proxy_mode)
 
 
 def _handle_won_bids(won_bids: list[BidResult], result: AuctionResult) -> None:

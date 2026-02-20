@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Manual integration test: APS miner + Braiins Farm Proxy via Docker Compose.
+Manual integration test: APS miner + IHP proxy stack via Docker Compose.
 
 This script spins up the simulated blockchain, provisions a temporary working
 directory with Docker Compose assets, and runs the full miner stack (miner
-container + farm proxy) to verify that the Braiins profile is updated and
-reloaded automatically when auction outcomes change.
+container + IHP proxy + reloader sidecar) to verify that target hashrate
+routing is updated and reloaded automatically when auction outcomes change.
 
 Prerequisites:
     - Docker with Compose plugin (`docker compose`) or standalone `docker-compose`
-    - Ability to pull the miner image referenced in envs/miner/docker-compose.yml
+    - Ability to pull the miner image referenced in envs/miner-ihp/docker-compose.yml
 
 Usage:
     python manual_test_miner_compose.py
@@ -30,6 +30,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Sequence
+from functools import lru_cache
 from pathlib import Path
 
 import bittensor_wallet
@@ -45,7 +46,11 @@ from infinite_hashes.testutils.integration.budget_helper import (
 )
 from infinite_hashes.testutils.simulator.state import MECHANISM_SPLIT_VALUE_MAX
 
-COMPOSE_SOURCE = Path(__file__).resolve().parents[2] / "envs" / "miner" / "docker-compose.yml"
+COMPOSE_SOURCE = Path(__file__).resolve().parents[2] / "envs" / "miner-ihp" / "docker-compose.yml"
+MINER_INSTALLER_SOURCE = Path(__file__).resolve().parents[2] / "installer" / "miner_install.sh"
+
+DEFAULT_BACKUP_POOL_HOST = "btc.global.luxor.tech"
+DEFAULT_BACKUP_POOL_PORT = 700
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -283,59 +288,63 @@ def copy_compose_file(dest_dir: Path) -> Path:
     return compose_target
 
 
-def create_braiins_profile(config_dir: Path) -> Path:
-    """Write the default Braiins profile used for the integration test."""
-    config_dir.mkdir(parents=True, exist_ok=True)
-    profile_path = config_dir / "active_profile.toml"
-    if profile_path.exists():
-        return profile_path
-    profile_path.write_text(
-        """[[server]]
-name = "InfiniteHash"
-port = 3333
+@lru_cache(maxsize=1)
+def _installer_script_text() -> str:
+    if not MINER_INSTALLER_SOURCE.exists():
+        raise RuntimeError(f"Installer script not found: {MINER_INSTALLER_SOURCE}")
+    return MINER_INSTALLER_SOURCE.read_text(encoding="utf-8")
 
-[[target]]
-name = "InfiniteHashLuxorTarget"
-url = "stratum+tcp://btc.global.luxor.tech:700"
-user_identity = "InfiniteHashLuxor"
-identity_pass_through = true
 
-[[target]]
-name = "MinerDefaultTarget"
-url = "stratum+tcp://btc.global.luxor.tech:700"
-user_identity = "MinerDefault"
-identity_pass_through = true
-
-[[target]]
-name = "MinerBackupTarget"
-url = "stratum+tcp://btc.viabtc.io:3333"
-user_identity = "MinerBackup"
-identity_pass_through = true
-
-[[routing]]
-name = "RD"
-from = ["InfiniteHash"]
-
-[[routing.goal]]
-name = "InfiniteHashLuxorGoal"
-hr_weight = 9
-
-[[routing.goal.level]]
-targets = ["InfiniteHashLuxorTarget"]
-
-[[routing.goal]]
-name = "MinerDefaultGoal"
-hr_weight = 10
-
-[[routing.goal.level]]
-targets = ["MinerDefaultTarget"]
-
-[[routing.goal.level]]
-targets = ["MinerBackupTarget"]
-""",
-        encoding="utf-8",
+def _extract_single_heredoc_from_function(function_name: str) -> str:
+    script = _installer_script_text()
+    function_match = re.search(
+        rf"(?ms)^{re.escape(function_name)}\(\)\s*\{{\n(?P<body>.*?)^\}}",
+        script,
     )
-    return profile_path
+    if function_match is None:
+        raise RuntimeError(f"Function {function_name} not found in installer script")
+
+    body = function_match.group("body")
+    heredoc_matches = list(
+        re.finditer(
+            r"(?ms)<<'?(?P<tag>[A-Z_]+)'?\n(?P<content>.*?)\n\s*(?P=tag)",
+            body,
+        )
+    )
+    if len(heredoc_matches) != 1:
+        raise RuntimeError(
+            f"Expected exactly one heredoc in installer function {function_name}, got {len(heredoc_matches)}"
+        )
+    return heredoc_matches[0].group("content").strip("\n") + "\n"
+
+
+def create_ihp_proxy_env(proxy_dir: Path) -> Path:
+    """Write default IHP .env file used by the integration test."""
+    proxy_dir.mkdir(parents=True, exist_ok=True)
+    env_path = proxy_dir / ".env"
+    if env_path.exists():
+        return env_path
+    env_template = _extract_single_heredoc_from_function("write_default_ihp_env")
+    env_path.write_text(env_template, encoding="utf-8")
+    return env_path
+
+
+def create_ihp_pools_config(
+    proxy_dir: Path,
+    backup_pool_host: str = DEFAULT_BACKUP_POOL_HOST,
+    backup_pool_port: int = DEFAULT_BACKUP_POOL_PORT,
+) -> Path:
+    """Write default IHP pools.toml used by the integration test."""
+    proxy_dir.mkdir(parents=True, exist_ok=True)
+    pools_path = proxy_dir / "pools.toml"
+    if pools_path.exists():
+        return pools_path
+    pools_template = _extract_single_heredoc_from_function("write_default_ihp_pools")
+    pools_content = pools_template.replace("${backup_pool_host}", backup_pool_host).replace(
+        "${backup_pool_port}", str(backup_pool_port)
+    )
+    pools_path.write_text(pools_content, encoding="utf-8")
+    return pools_path
 
 
 def create_miner_config(config_path: Path) -> None:
@@ -364,23 +373,25 @@ hashrates = [
     config_path.write_text(content, encoding="utf-8")
 
 
-def load_goal_weights(profile_path: Path) -> dict[str, int]:
-    """Return {goal_name: hr_weight} from Braiins profile."""
-    doc = tomlkit.parse(profile_path.read_text(encoding="utf-8"))
-    routing = doc.get("routing") or []
-    weights: dict[str, int] = {}
-    if not isinstance(routing, list):
-        return weights
-    for route in routing:
-        goals = route.get("goal")
-        if not isinstance(goals, list):
+def load_subnet_target_hashrate(pools_path: Path, pool_name: str = "central-proxy") -> str | None:
+    """Return current target_hashrate for subnet pool name from pools.toml."""
+    doc = tomlkit.parse(pools_path.read_text(encoding="utf-8"))
+    pools = doc.get("pools")
+    if not isinstance(pools, dict):
+        return None
+    main_pools = pools.get("main")
+    if not isinstance(main_pools, list):
+        return None
+    for pool in main_pools:
+        if not isinstance(pool, dict):
             continue
-        for goal in goals:
-            if isinstance(goal, dict) and "name" in goal:
-                weight = goal.get("hr_weight")
-                if isinstance(weight, int):
-                    weights[str(goal["name"])] = weight
-    return weights
+        if str(pool.get("name", "")).strip().lower() != pool_name.lower():
+            continue
+        target_hashrate = pool.get("target_hashrate")
+        if isinstance(target_hashrate, str):
+            return target_hashrate
+        return None
+    return None
 
 
 async def run_simulation(
@@ -388,12 +399,12 @@ async def run_simulation(
     validator_wallet,
     compose_cmd: list[str],
     workdir: Path,
-    profile_path: Path,
+    pools_path: Path,
     mechanism_share: float,
     miner_config_path: Path,
 ) -> None:
-    """Advance the simulated chain and monitor Braiins profile updates."""
-    services_to_tail = ["miner", "farm-proxy-configurator"]
+    """Advance the simulated chain and monitor IHP target hashrate updates."""
+    services_to_tail = ["miner", "ihp-proxy", "ihp-api", "ihp-proxy-reloader"]
     log_processes: dict[str, subprocess.Popen[str]] = {}
     log_tasks: list[asyncio.Task[None]] = []
     for service in services_to_tail:
@@ -417,8 +428,8 @@ async def run_simulation(
     last_window = current_block // BLOCKS_PER_WINDOW
     LOGGER.info("Simulation starting", start_block=current_block)
 
-    baseline_weights = load_goal_weights(profile_path)
-    LOGGER.info("Initial Braiins weights", weights=baseline_weights)
+    baseline_target = load_subnet_target_hashrate(pools_path)
+    LOGGER.info("Initial IHP subnet target hashrate", target_hashrate=baseline_target)
 
     commitment_scheduled = False
     hashrate_update_done = False
@@ -467,14 +478,14 @@ async def run_simulation(
             except Exception:  # noqa: BLE001
                 LOGGER.exception("Failed to read commitments")
 
-            weights = load_goal_weights(profile_path)
-            if weights != baseline_weights:
-                LOGGER.info("Braiins weights updated", weights=weights)
-                baseline_weights = dict(weights)
+            target_hashrate = load_subnet_target_hashrate(pools_path)
+            if target_hashrate != baseline_target:
+                LOGGER.info("IHP subnet target hashrate updated", target_hashrate=target_hashrate)
+                baseline_target = target_hashrate
 
-            sentinel = profile_path.parent / ".reconfigure"
+            sentinel = pools_path.parent / ".reload-ihp"
             if sentinel.exists():
-                LOGGER.info("Configurator sentinel detected", path=str(sentinel))
+                LOGGER.info("IHP reload sentinel detected", path=str(sentinel))
 
             if current_window > last_window:
                 last_window = current_window
@@ -523,15 +534,14 @@ async def main() -> int:
     workdir = Path(tempfile.mkdtemp(prefix="infhash_miner_compose_"))
     wallets_dir = workdir / "wallets"
     logs_dir = workdir / "logs"
-    brains_dir = workdir / "brainsproxy" / "config"
-    for path in (wallets_dir, logs_dir, brains_dir):
+    proxy_dir = workdir / "proxy"
+    for path in (wallets_dir, logs_dir, proxy_dir):
         path.mkdir(parents=True, exist_ok=True)
 
     LOGGER.info("Working directory prepared", path=str(workdir))
 
     compose_cmd = docker_compose_base_cmd()
     compose_file = copy_compose_file(workdir)
-    profile_path = create_braiins_profile(brains_dir)
 
     LOGGER.info("Compose file ready", compose_path=str(compose_file))
 
@@ -544,6 +554,10 @@ async def main() -> int:
         hotkey="default",
         path=str(wallets_dir),
     )
+
+    create_ihp_proxy_env(proxy_dir)
+    pools_path = create_ihp_pools_config(proxy_dir)
+    LOGGER.info("IHP proxy config written", pools_path=str(pools_path))
 
     miner_config_path = workdir / "config.toml"
     create_miner_config(miner_config_path)
@@ -585,12 +599,23 @@ async def main() -> int:
             validator_wallet,
             compose_cmd,
             workdir,
-            profile_path,
+            pools_path,
             mechanism_share,
             miner_config_path,
         )
     except KeyboardInterrupt:
         LOGGER.info("Received interrupt, shutting down...")
+    except Exception:  # noqa: BLE001
+        LOGGER.exception("Manual IHP integration test failed")
+        if stack_started:
+            LOGGER.info("Collecting docker compose logs for diagnostics")
+            with contextlib.suppress(Exception):
+                subprocess.run(
+                    compose_cmd + ["logs", "--no-color", "--tail", "400"],
+                    cwd=workdir,
+                    check=False,
+                )
+        return 1
     finally:
         LOGGER.info("Cleaning up")
         if stack_started:

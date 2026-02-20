@@ -81,7 +81,14 @@ def main() -> None:
         "--miner-compose-path",
         type=Path,
         default=miner_default_path,
-        help=f"path to miner docker-compose.yml (default: {miner_default_path})",
+        help=f"path to Braiins miner docker-compose.yml (default: {miner_default_path})",
+    )
+    miner_ihp_default_path = Path(__file__).resolve().parents[1] / "envs" / "miner-ihp" / "docker-compose.yml"
+    parser.add_argument(
+        "--miner-ihp-compose-path",
+        type=Path,
+        default=miner_ihp_default_path,
+        help=f"path to IHP miner docker-compose.yml (default: {miner_ihp_default_path})",
     )
     args = parser.parse_args()
 
@@ -92,7 +99,8 @@ def main() -> None:
     if args.target in ("validator", "all"):
         targets.append(("validator", args.compose_path))
     if args.target in ("miner", "all"):
-        targets.append(("miner", args.miner_compose_path))
+        targets.append(("miner-braiins", args.miner_compose_path))
+        targets.append(("miner-ihp", args.miner_ihp_compose_path))
 
     total_replacements = 0
     for label, compose_path in targets:

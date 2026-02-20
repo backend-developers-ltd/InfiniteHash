@@ -5,6 +5,7 @@ set -euo pipefail
 
 ENV_NAME="${1:-prod}"
 WORKING_DIRECTORY=${2:-~/InfiniteHash-miner/}
+GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
 
 mkdir -p "${WORKING_DIRECTORY}"
 WORKING_DIRECTORY=$(realpath "${WORKING_DIRECTORY}")
@@ -12,6 +13,69 @@ WORKING_DIRECTORY=$(realpath "${WORKING_DIRECTORY}")
 CONFIG_FILE="${WORKING_DIRECTORY}/config.toml"
 BRAIINSPROXY_DIR="${WORKING_DIRECTORY}/brainsproxy"
 BRAIINSPROXY_CONFIG_DIR="${BRAIINSPROXY_DIR}/config"
+BRAIINSPROXY_ACTIVE_PROFILE="${BRAIINSPROXY_CONFIG_DIR}/active_profile.toml"
+NEW_PROXY_DIR="${WORKING_DIRECTORY}/proxy"
+NEW_PROXY_ENV_FILE="${NEW_PROXY_DIR}/.env"
+NEW_PROXY_POOLS_FILE="${NEW_PROXY_DIR}/pools.toml"
+PROXY_MODE_FILE="${WORKING_DIRECTORY}/proxy_mode"
+
+write_default_ihp_env() {
+    local destination="$1"
+    cat > "${destination}" <<'EOL'
+IHP_POOL_CONFIG_PATH=/etc/infinite-hash-proxy/pools.toml
+IHP_LISTEN_ADDR=0.0.0.0:3333
+IHP_METRICS_ADDR=0.0.0.0:9090
+
+IHP_DATABASE_URL=postgresql+asyncpg://ihp:ihp@ihp-postgres:5432/ihp
+IHP_COMPACTION_ENABLED=true
+IHP_COMPACTION_INTERVAL_SECONDS=3600
+IHP_COMPACTION_RETENTION_HOURS=72
+
+IHP_API_HOST=0.0.0.0
+IHP_API_PORT=8000
+IHP_API_LOG_LEVEL=INFO
+IHP_API_DATABASE_URL=postgresql+asyncpg://ihp:ihp@ihp-postgres:5432/ihp
+EOL
+}
+
+write_default_ihp_pools() {
+    local destination="$1"
+    local backup_pool_host="$2"
+    local backup_pool_port="$3"
+
+    cat > "${destination}" <<EOL
+[pools]
+
+[pools.backup]
+name = "private-backup"
+host = "${backup_pool_host}"
+port = ${backup_pool_port}
+
+[[pools.main]]
+name = "central-proxy"
+host = "stratum.infinitehash.xyz"
+port = 9332
+weight = 1
+
+[extranonce]
+extranonce2_size = 5
+
+[routing]
+rebalance_interval_seconds = 10
+grace_period_seconds = 60
+min_shares_for_estimate = 20
+rebalance_threshold_percent = 10
+min_reassign_interval_seconds = 45
+pool_connect_timeout_seconds = 10
+pool_read_timeout_seconds = 300
+pool_unhealthy_cooldown_seconds = 10
+worker_assignment_stale_threshold_seconds = 30
+disconnected_worker_retention_seconds = 900
+
+[filters]
+ban_nicehash = true
+EOL
+}
 
 if [ ! -f "${CONFIG_FILE}" ]; then
     echo "Creating config.toml file..."
@@ -125,12 +189,68 @@ if [ -f "${HOTKEY_PUB_FILE}" ]; then
 fi
 HOTKEY_IDENTIFIER=${HOTKEY_SS58:-${BITTENSOR_WALLET_HOTKEY_NAME}}
 
+PROXY_MODE=""
+if [ -f "${PROXY_MODE_FILE}" ]; then
+    PROXY_MODE=$(tr -d '[:space:]' < "${PROXY_MODE_FILE}" | tr '[:upper:]' '[:lower:]')
+fi
+
+if [ "${PROXY_MODE}" != "ihp" ] && [ "${PROXY_MODE}" != "braiins" ]; then
+    DEFAULT_MODE_SELECTION=1
+    if [ -f "${BRAIINSPROXY_ACTIVE_PROFILE}" ]; then
+        DEFAULT_MODE_SELECTION=2
+        echo "Detected existing Braiins profile. Defaulting selection to Braiins to avoid migration."
+    fi
+
+    echo ""
+    echo "Choose proxy mode:"
+    echo "  1) InfiniteHash Proxy (ihp, default)"
+    echo "  2) Braiins Farm Proxy (braiins)"
+    read -r -p "Selection [${DEFAULT_MODE_SELECTION}]: " PROXY_MODE_SELECTION </dev/tty
+    PROXY_MODE_SELECTION=${PROXY_MODE_SELECTION:-${DEFAULT_MODE_SELECTION}}
+
+    case "${PROXY_MODE_SELECTION}" in
+        2) PROXY_MODE="braiins" ;;
+        *) PROXY_MODE="ihp" ;;
+    esac
+
+    printf "%s\n" "${PROXY_MODE}" > "${PROXY_MODE_FILE}"
+    echo "Proxy mode selected: ${PROXY_MODE}"
+else
+    echo "Using existing proxy mode from ${PROXY_MODE_FILE}: ${PROXY_MODE}"
+fi
+
 mkdir -p "${WORKING_DIRECTORY}/logs"
-mkdir -p "${BRAIINSPROXY_CONFIG_DIR}"
 
-BRAIINSPROXY_ACTIVE_PROFILE="${BRAIINSPROXY_CONFIG_DIR}/active_profile.toml"
+if [ "${PROXY_MODE}" = "ihp" ]; then
+    mkdir -p "${NEW_PROXY_DIR}"
 
-if [ ! -f "${BRAIINSPROXY_ACTIVE_PROFILE}" ]; then
+    if [ ! -f "${NEW_PROXY_ENV_FILE}" ]; then
+        echo "Creating InfiniteHash Proxy environment file at ${NEW_PROXY_ENV_FILE}..."
+        write_default_ihp_env "${NEW_PROXY_ENV_FILE}"
+    else
+        echo "Using existing InfiniteHash Proxy environment file at ${NEW_PROXY_ENV_FILE}"
+    fi
+
+    if [ ! -f "${NEW_PROXY_POOLS_FILE}" ]; then
+        echo "Creating InfiniteHash Proxy pools file at ${NEW_PROXY_POOLS_FILE}..."
+        DEFAULT_PRIVATE_POOL_HOST="btc.global.luxor.tech"
+        read -r -p "Enter IHP backup/private pool host [${DEFAULT_PRIVATE_POOL_HOST}]: " PRIVATE_POOL_HOST </dev/tty
+        PRIVATE_POOL_HOST=${PRIVATE_POOL_HOST:-${DEFAULT_PRIVATE_POOL_HOST}}
+
+        DEFAULT_PRIVATE_POOL_PORT="700"
+        read -r -p "Enter IHP backup/private pool port [${DEFAULT_PRIVATE_POOL_PORT}]: " PRIVATE_POOL_PORT </dev/tty
+        PRIVATE_POOL_PORT=${PRIVATE_POOL_PORT:-${DEFAULT_PRIVATE_POOL_PORT}}
+        PRIVATE_POOL_PORT=$(echo "${PRIVATE_POOL_PORT}" | tr -d '[:space:]')
+
+        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}"
+    else
+        echo "Using existing InfiniteHash Proxy pools file at ${NEW_PROXY_POOLS_FILE}"
+    fi
+else
+    mkdir -p "${BRAIINSPROXY_CONFIG_DIR}"
+fi
+
+if [ "${PROXY_MODE}" = "braiins" ] && [ ! -f "${BRAIINSPROXY_ACTIVE_PROFILE}" ]; then
     echo "Creating Braiins Farm Proxy profile at ${BRAIINSPROXY_ACTIVE_PROFILE}..."
     DEFAULT_LUXOR_IDENTITY="sn${BITTENSOR_NETUID}auction.${HOTKEY_IDENTIFIER}.worker1"
     read -r -p "Enter Luxor user identity [${DEFAULT_LUXOR_IDENTITY}]: " LUXOR_USER_ID </dev/tty
@@ -210,8 +330,6 @@ targets = ["MinerBackupTarget"]
 EOL
 fi
 
-GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
-
 echo "Running update_miner_compose.sh once to ensure it works..."
 curl -s "${GITHUB_URL}/deploy-config-${ENV_NAME}/installer/update_miner_compose.sh" > /tmp/update_miner_compose.sh
 chmod +x /tmp/update_miner_compose.sh
@@ -228,3 +346,4 @@ CRON_CMD="*/15 * * * * cd ${WORKING_DIRECTORY} && curl -s ${GITHUB_URL}/deploy-c
 echo "Cron job installed successfully. It will run every 15 minutes."
 echo "Environment: ${ENV_NAME}"
 echo "Working directory: ${WORKING_DIRECTORY}"
+echo "Proxy mode: ${PROXY_MODE}"

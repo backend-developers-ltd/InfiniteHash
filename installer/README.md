@@ -66,6 +66,27 @@ An installer for the APS miner (APScheduler-based miner) is also available:
 curl -s https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads/deploy-config-prod/installer/miner_install.sh | bash
 ```
 
-This script will prompt for TOML configuration values, generate `config.toml`, deploy the miner stack with Docker Compose, and install a cron job that keeps the compose file up to date by calling `installer/update_miner_compose.sh`.
+This script prompts for TOML configuration values and proxy mode, generates `config.toml`, deploys the miner stack with Docker Compose, and installs a cron job that keeps the compose file up to date by calling `installer/update_miner_compose.sh`.
 
-The miner bundle automatically provisions Braiins Farm Proxy (`farm-proxy` and configurator sidecar) and keeps the active profile in `brainsproxy/active_profile.toml` in sync with APS miner auction results.
+For `ihp` mode, default proxy template files (`proxy/.env` and `proxy/pools.toml`) are generated directly by the installer script (inline templates), not downloaded from external template files.
+
+Proxy mode options:
+- `InfiniteHash Proxy` (`ihp`, default on Enter)
+- `Braiins Farm Proxy` (`braiins`, optional)
+
+In `braiins` mode, the installer provisions Braiins Farm Proxy (`farm-proxy` and configurator sidecar) and keeps `brainsproxy/active_profile.toml` in sync with APS miner auction results.
+
+### Routing identifiers by mode
+
+`ihp` mode:
+- APS miner updates subnet allocation by pool `name` in `proxy/pools.toml` (`[[pools.main]]` entry), not by host/port.
+- The miner container uses `APS_MINER_SUBNET_POOL_NAME` (default: `central-proxy`) to select which pool gets absolute `target_hashrate`.
+- The selected pool name must exist in `proxy/pools.toml`; otherwise no subnet target update is applied.
+- During installation, if `proxy/pools.toml` does not exist yet, the script asks for backup/private pool host/port and writes those values to `pools.backup`.
+- Installer default sets `[extranonce].extranonce2_size = 5` to stay compatible with pools that expose `extranonce2_size = 6` and require one extra bridge byte.
+- After updating `proxy/pools.toml`, APS miner touches reload sentinel `APS_MINER_IHP_RELOAD_SENTINEL` (default: `/root/src/proxy/.reload-ihp`); sidecar `ihp-proxy-reloader` then runs `kill -HUP 1` in `ihp-proxy` PID namespace.
+
+`braiins` mode:
+- APS miner updates routing by Braiins goal names in `brainsproxy/active_profile.toml`.
+- Expected goal names are `InfiniteHashLuxorGoal` (subnet side) and `MinerDefaultGoal` (non-subnet side).
+- If you rename these goals manually, APS miner will not match them until code/config is aligned.
