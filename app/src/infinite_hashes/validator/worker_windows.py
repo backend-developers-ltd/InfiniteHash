@@ -56,7 +56,7 @@ def _split_worker_id(worker_id: str) -> tuple[str, str]:
 
 
 def records_to_worker_hashrates(records: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
-    """Convert worker records into hotkey -> worker_suffix -> hashrate (single value)."""
+    """Convert worker records into hotkey -> worker_suffix -> summed hashrate."""
     out: dict[str, dict[str, int]] = {}
     for rec in records:
         hotkey, worker_suffix = _split_worker_id(rec.get("worker_id", ""))
@@ -67,7 +67,8 @@ def records_to_worker_hashrates(records: Iterable[Mapping[str, Any]]) -> dict[st
             hr_int = int(hr)
         except (ValueError, TypeError):
             continue
-        out.setdefault(hotkey, {})[worker_suffix] = hr_int
+        workers = out.setdefault(hotkey, {})
+        workers[worker_suffix] = workers.get(worker_suffix, 0) + hr_int
     return out
 
 
