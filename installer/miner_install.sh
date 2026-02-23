@@ -4,8 +4,15 @@
 set -euo pipefail
 
 ENV_NAME="${1:-prod}"
-WORKING_DIRECTORY=${2:-~/InfiniteHash-miner/}
+DEFAULT_WORKING_DIRECTORY=~/InfiniteHash-miner/
+read -r -p "Enter WORKING_DIRECTORY [${DEFAULT_WORKING_DIRECTORY}]: " WORKING_DIRECTORY </dev/tty
+WORKING_DIRECTORY=${WORKING_DIRECTORY:-${DEFAULT_WORKING_DIRECTORY}}
+if [[ "${WORKING_DIRECTORY}" == ~* ]]; then
+    WORKING_DIRECTORY="${WORKING_DIRECTORY/#\~/${HOME}}"
+fi
 GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
+MAX_V2_WORKER_SIZE_PH="0.45"
+MAX_V2_TOTAL_WORKERS=1000
 
 mkdir -p "${WORKING_DIRECTORY}"
 WORKING_DIRECTORY=$(realpath "${WORKING_DIRECTORY}")
@@ -100,30 +107,90 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     PRICE_MULTIPLIER=${PRICE_MULTIPLIER:-1.05}
     PRICE_MULTIPLIER=$(echo "${PRICE_MULTIPLIER}" | tr -d '[:space:]')
 
-    read -r -p "Enter worker hashrates in PH (comma separated, e.g. 5.5,8.2) []: " HASHRATES_INPUT </dev/tty
-    HASHRATES_INPUT=${HASHRATES_INPUT:-}
+    echo "Configure workers using v2 grouped format."
+    echo "Format: hashratePHxcount pairs separated by commas (example: 0.45x10,0.25x4)."
+    echo "Limits: hashrate > 0 and <= ${MAX_V2_WORKER_SIZE_PH} PH, total workers <= ${MAX_V2_TOTAL_WORKERS}."
+    echo ""
 
-    IFS=',' read -ra HASHRATE_ITEMS <<< "${HASHRATES_INPUT}"
-    HASHRATE_VALUES=()
-    for item in "${HASHRATE_ITEMS[@]}"; do
-        trimmed=$(echo "${item}" | tr -d '[:space:]')
-        if [ -n "${trimmed}" ]; then
-            HASHRATE_VALUES+=("${trimmed}")
+    WORKER_SIZE_TOML_LINES=""
+    while true; do
+        read -r -p "Enter worker sizes (v2) []: " WORKER_SIZES_INPUT </dev/tty
+        WORKER_SIZES_INPUT=$(echo "${WORKER_SIZES_INPUT}" | tr -d '[:space:]')
+
+        if [ -z "${WORKER_SIZES_INPUT}" ]; then
+            echo "Worker sizes input cannot be empty."
+            continue
         fi
-    done
 
-    HASHRATE_LINES=""
-    if [ "${#HASHRATE_VALUES[@]}" -gt 0 ]; then
-        for idx in "${!HASHRATE_VALUES[@]}"; do
-            value=${HASHRATE_VALUES[$idx]}
-            if [ "${idx}" -eq 0 ]; then
-                HASHRATE_LINES="    \"${value}\""
+        IFS=',' read -ra WORKER_SIZE_ITEMS <<< "${WORKER_SIZES_INPUT}"
+        if [ "${#WORKER_SIZE_ITEMS[@]}" -eq 0 ]; then
+            echo "No worker sizes provided."
+            continue
+        fi
+
+        declare -A SEEN_HASHRATES=()
+        WORKER_SIZE_TOML_LINES=""
+        TOTAL_WORKERS=0
+        TOTAL_HASHRATE_PH="0"
+        PARSE_ERROR=""
+
+        for item in "${WORKER_SIZE_ITEMS[@]}"; do
+            if [[ ! "${item}" =~ ^([0-9]+([.][0-9]+)?)x([0-9]+)$ ]]; then
+                PARSE_ERROR="Invalid item '${item}'. Expected format hashratePHxcount (e.g. 0.45x10)."
+                break
+            fi
+
+            HASHRATE_PH="${BASH_REMATCH[1]}"
+            WORKER_COUNT="${BASH_REMATCH[3]}"
+
+            if ! awk -v h="${HASHRATE_PH}" -v max="${MAX_V2_WORKER_SIZE_PH}" 'BEGIN { exit !(h > 0 && h <= max) }'; then
+                PARSE_ERROR="Invalid hashrate '${HASHRATE_PH}' in '${item}'. Allowed range is (0, ${MAX_V2_WORKER_SIZE_PH}] PH."
+                break
+            fi
+
+            if [ "${WORKER_COUNT}" -le 0 ]; then
+                PARSE_ERROR="Invalid worker count '${WORKER_COUNT}' in '${item}'. Count must be > 0."
+                break
+            fi
+
+            if [ -n "${SEEN_HASHRATES[${HASHRATE_PH}]+x}" ]; then
+                PARSE_ERROR="Duplicate hashrate '${HASHRATE_PH}' found. Use each hashrate only once."
+                break
+            fi
+            SEEN_HASHRATES["${HASHRATE_PH}"]=1
+
+            TOTAL_WORKERS=$((TOTAL_WORKERS + WORKER_COUNT))
+            if [ "${TOTAL_WORKERS}" -gt "${MAX_V2_TOTAL_WORKERS}" ]; then
+                PARSE_ERROR="Total workers ${TOTAL_WORKERS} exceeds limit ${MAX_V2_TOTAL_WORKERS}."
+                break
+            fi
+
+            TOTAL_HASHRATE_PH=$(awk -v total="${TOTAL_HASHRATE_PH}" -v h="${HASHRATE_PH}" -v c="${WORKER_COUNT}" 'BEGIN { printf "%.8f", total + (h * c) }')
+
+            if [ -z "${WORKER_SIZE_TOML_LINES}" ]; then
+                WORKER_SIZE_TOML_LINES="\"${HASHRATE_PH}\" = ${WORKER_COUNT}"
             else
-                HASHRATE_LINES="${HASHRATE_LINES},
-    \"${value}\""
+                WORKER_SIZE_TOML_LINES="${WORKER_SIZE_TOML_LINES}
+\"${HASHRATE_PH}\" = ${WORKER_COUNT}"
             fi
         done
-    fi
+
+        if [ -n "${PARSE_ERROR}" ]; then
+            echo "${PARSE_ERROR}"
+            continue
+        fi
+
+        echo "Parsed workers: ${TOTAL_WORKERS}"
+        echo "Total hashrate: ${TOTAL_HASHRATE_PH} PH"
+        echo "Entries:"
+        printf "%s\n" "${WORKER_SIZE_TOML_LINES}"
+        read -r -p "Confirm worker sizes? [Y/n]: " WORKER_SIZES_CONFIRM </dev/tty
+        WORKER_SIZES_CONFIRM=${WORKER_SIZES_CONFIRM:-Y}
+        case "${WORKER_SIZES_CONFIRM}" in
+            [Yy]|[Yy][Ee][Ss]) break ;;
+            *) echo "Re-enter worker sizes." ;;
+        esac
+    done
 
     cat > "${CONFIG_FILE}" <<EOL
 [bittensor]
@@ -137,9 +204,9 @@ directory = "${BITTENSOR_WALLET_DIRECTORY}"
 
 [workers]
 price_multiplier = "${PRICE_MULTIPLIER}"
-hashrates = [
-${HASHRATE_LINES}
-]
+
+[workers.worker_sizes]
+${WORKER_SIZE_TOML_LINES}
 EOL
 
     echo "config.toml file created successfully at ${CONFIG_FILE}."
