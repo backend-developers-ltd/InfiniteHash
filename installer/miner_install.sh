@@ -58,7 +58,7 @@ port = 9332
 weight = 1
 
 [extranonce]
-extranonce2_size = 5
+extranonce2_size = 2
 
 [routing]
 rebalance_interval_seconds = 10
