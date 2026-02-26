@@ -13,6 +13,8 @@ fi
 GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
 MAX_V2_WORKER_SIZE_PH="0.45"
 MAX_V2_TOTAL_WORKERS=1000
+DEFAULT_HOST_WALLET_DIRECTORY="~/.bittensor/wallets"
+CONTAINER_WALLET_DIRECTORY="/root/.bittensor/wallets"
 
 mkdir -p "${WORKING_DIRECTORY}"
 WORKING_DIRECTORY=$(realpath "${WORKING_DIRECTORY}")
@@ -113,8 +115,9 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     BITTENSOR_NETUID=${BITTENSOR_NETUID:-89}
     BITTENSOR_NETUID=$(echo "${BITTENSOR_NETUID}" | tr -d '[:space:]')
 
-    read -r -p "Enter BITTENSOR_WALLET_DIRECTORY [~/.bittensor/wallets]: " BITTENSOR_WALLET_DIRECTORY </dev/tty
-    BITTENSOR_WALLET_DIRECTORY=${BITTENSOR_WALLET_DIRECTORY:-~/.bittensor/wallets}
+    read -r -p "Enter host BITTENSOR_WALLET_DIRECTORY [${DEFAULT_HOST_WALLET_DIRECTORY}]: " HOST_WALLET_DIRECTORY </dev/tty
+    HOST_WALLET_DIRECTORY=${HOST_WALLET_DIRECTORY:-${DEFAULT_HOST_WALLET_DIRECTORY}}
+    BITTENSOR_WALLET_DIRECTORY="${CONTAINER_WALLET_DIRECTORY}"
 
     read -r -p "Enter BITTENSOR_WALLET_NAME [default]: " BITTENSOR_WALLET_NAME </dev/tty
     BITTENSOR_WALLET_NAME=${BITTENSOR_WALLET_NAME:-default}
@@ -254,6 +257,13 @@ else
     BITTENSOR_WALLET_NAME=${BITTENSOR_WALLET_NAME:-$(parse_toml_value "wallet" "name")}
     BITTENSOR_WALLET_HOTKEY_NAME=${BITTENSOR_WALLET_HOTKEY_NAME:-$(parse_toml_value "wallet" "hotkey_name")}
     BITTENSOR_WALLET_DIRECTORY=${BITTENSOR_WALLET_DIRECTORY:-$(parse_toml_value "wallet" "directory")}
+    HOST_WALLET_DIRECTORY=${HOST_WALLET_DIRECTORY:-${BITTENSOR_WALLET_DIRECTORY}}
+
+    if [ "${BITTENSOR_WALLET_DIRECTORY}" != "${CONTAINER_WALLET_DIRECTORY}" ]; then
+        echo "Updating wallet directory in ${CONFIG_FILE} for container runtime: ${BITTENSOR_WALLET_DIRECTORY} -> ${CONTAINER_WALLET_DIRECTORY}"
+        sed -i "/^\\[wallet\\]/,/^\\[/{s|^directory = \".*\"|directory = \"${CONTAINER_WALLET_DIRECTORY}\"|}" "${CONFIG_FILE}"
+        BITTENSOR_WALLET_DIRECTORY="${CONTAINER_WALLET_DIRECTORY}"
+    fi
 fi
 
 expand_path() {
@@ -267,8 +277,19 @@ expand_path() {
     fi
 }
 
-WALLET_DIR_EXPANDED=$(expand_path "${BITTENSOR_WALLET_DIRECTORY}")
+if [ -z "${HOST_WALLET_DIRECTORY:-}" ] || [ "${HOST_WALLET_DIRECTORY}" = "${CONTAINER_WALLET_DIRECTORY}" ]; then
+    HOST_WALLET_DIRECTORY="${DEFAULT_HOST_WALLET_DIRECTORY}"
+fi
+
+WALLET_DIR_EXPANDED=$(expand_path "${HOST_WALLET_DIRECTORY}")
 HOTKEY_PUB_FILE="${WALLET_DIR_EXPANDED}/${BITTENSOR_WALLET_NAME}/hotkeys/${BITTENSOR_WALLET_HOTKEY_NAME}pub.txt"
+if [ ! -f "${HOTKEY_PUB_FILE}" ]; then
+    FALLBACK_WALLET_DIR="${HOME}/.bittensor/wallets"
+    FALLBACK_HOTKEY_PUB_FILE="${FALLBACK_WALLET_DIR}/${BITTENSOR_WALLET_NAME}/hotkeys/${BITTENSOR_WALLET_HOTKEY_NAME}pub.txt"
+    if [ -f "${FALLBACK_HOTKEY_PUB_FILE}" ]; then
+        HOTKEY_PUB_FILE="${FALLBACK_HOTKEY_PUB_FILE}"
+    fi
+fi
 HOTKEY_SS58=""
 if [ -f "${HOTKEY_PUB_FILE}" ]; then
     HOTKEY_SS58=$(sed -n 's/.*"ss58Address":"\([^"]*\)".*/\1/p' "${HOTKEY_PUB_FILE}")
