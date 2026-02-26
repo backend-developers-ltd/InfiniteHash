@@ -49,6 +49,8 @@ write_default_ihp_pools() {
     local destination="$1"
     local backup_pool_host="$2"
     local backup_pool_port="$3"
+    local backup_pool_worker_id="${4:-}"
+    local main_pool_worker_id="${5:-}"
 
     cat > "${destination}" <<EOL
 [pools]
@@ -57,12 +59,29 @@ write_default_ihp_pools() {
 name = "private-backup"
 host = "${backup_pool_host}"
 port = ${backup_pool_port}
+EOL
 
+    if [ -n "${backup_pool_worker_id}" ]; then
+        cat >> "${destination}" <<EOL
+worker_id = "${backup_pool_worker_id}"
+EOL
+    fi
+
+    cat >> "${destination}" <<EOL
 [[pools.main]]
 name = "central-proxy"
 host = "stratum.infinitehash.xyz"
 port = 9332
 weight = 1
+EOL
+
+    if [ -n "${main_pool_worker_id}" ]; then
+        cat >> "${destination}" <<EOL
+worker_id = "${main_pool_worker_id}"
+EOL
+    fi
+
+    cat >> "${destination}" <<EOL
 
 [extranonce]
 extranonce2_size = 2
@@ -309,7 +328,28 @@ if [ "${PROXY_MODE}" = "ihp" ]; then
         PRIVATE_POOL_PORT=${PRIVATE_POOL_PORT:-${DEFAULT_PRIVATE_POOL_PORT}}
         PRIVATE_POOL_PORT=$(echo "${PRIVATE_POOL_PORT}" | tr -d '[:space:]')
 
-        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}"
+        read -r -p "Enter IHP backup/private pool worker ID override (optional) []: " PRIVATE_POOL_WORKER_ID </dev/tty
+        PRIVATE_POOL_WORKER_ID=$(echo "${PRIVATE_POOL_WORKER_ID}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        DEFAULT_MAIN_POOL_WORKER_ID="sn${BITTENSOR_NETUID}auction.${HOTKEY_IDENTIFIER}.worker1"
+        echo ""
+        echo "Configure IHP central-proxy worker ID override:"
+        echo "  1) Use suggested value (${DEFAULT_MAIN_POOL_WORKER_ID})"
+        echo "  2) Set manually (leave empty for no override)"
+        read -r -p "Selection [1]: " MAIN_POOL_WORKER_ID_MODE </dev/tty
+        MAIN_POOL_WORKER_ID_MODE=${MAIN_POOL_WORKER_ID_MODE:-1}
+
+        case "${MAIN_POOL_WORKER_ID_MODE}" in
+            2)
+                read -r -p "Enter IHP central-proxy worker ID override (optional) []: " MAIN_POOL_WORKER_ID </dev/tty
+                MAIN_POOL_WORKER_ID=$(echo "${MAIN_POOL_WORKER_ID}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                ;;
+            *)
+                MAIN_POOL_WORKER_ID="${DEFAULT_MAIN_POOL_WORKER_ID}"
+                ;;
+        esac
+
+        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}" "${PRIVATE_POOL_WORKER_ID}" "${MAIN_POOL_WORKER_ID}"
     else
         echo "Using existing InfiniteHash Proxy pools file at ${NEW_PROXY_POOLS_FILE}"
     fi
