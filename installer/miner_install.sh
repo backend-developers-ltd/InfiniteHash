@@ -13,6 +13,8 @@ fi
 GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
 MAX_V2_WORKER_SIZE_PH="0.45"
 MAX_V2_TOTAL_WORKERS=1000
+DEFAULT_HOST_WALLET_DIRECTORY="${HOME}/.bittensor/wallets"
+CONTAINER_WALLET_DIRECTORY="/root/.bittensor/wallets"
 
 mkdir -p "${WORKING_DIRECTORY}"
 WORKING_DIRECTORY=$(realpath "${WORKING_DIRECTORY}")
@@ -49,6 +51,8 @@ write_default_ihp_pools() {
     local destination="$1"
     local backup_pool_host="$2"
     local backup_pool_port="$3"
+    local backup_pool_worker_id="${4:-}"
+    local main_pool_worker_id="${5:-}"
 
     cat > "${destination}" <<EOL
 [pools]
@@ -57,12 +61,29 @@ write_default_ihp_pools() {
 name = "private-backup"
 host = "${backup_pool_host}"
 port = ${backup_pool_port}
+EOL
 
+    if [ -n "${backup_pool_worker_id}" ]; then
+        cat >> "${destination}" <<EOL
+worker_id = "${backup_pool_worker_id}"
+EOL
+    fi
+
+    cat >> "${destination}" <<EOL
 [[pools.main]]
 name = "central-proxy"
 host = "stratum.infinitehash.xyz"
 port = 9332
 weight = 1
+EOL
+
+    if [ -n "${main_pool_worker_id}" ]; then
+        cat >> "${destination}" <<EOL
+worker_id = "${main_pool_worker_id}"
+EOL
+    fi
+
+    cat >> "${destination}" <<EOL
 
 [extranonce]
 extranonce2_size = 2
@@ -94,8 +115,9 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     BITTENSOR_NETUID=${BITTENSOR_NETUID:-89}
     BITTENSOR_NETUID=$(echo "${BITTENSOR_NETUID}" | tr -d '[:space:]')
 
-    read -r -p "Enter BITTENSOR_WALLET_DIRECTORY [~/.bittensor/wallets]: " BITTENSOR_WALLET_DIRECTORY </dev/tty
-    BITTENSOR_WALLET_DIRECTORY=${BITTENSOR_WALLET_DIRECTORY:-~/.bittensor/wallets}
+    read -r -p "Enter host BITTENSOR_WALLET_DIRECTORY [${DEFAULT_HOST_WALLET_DIRECTORY}]: " HOST_WALLET_DIRECTORY </dev/tty
+    HOST_WALLET_DIRECTORY=${HOST_WALLET_DIRECTORY:-${DEFAULT_HOST_WALLET_DIRECTORY}}
+    BITTENSOR_WALLET_DIRECTORY="${CONTAINER_WALLET_DIRECTORY}"
 
     read -r -p "Enter BITTENSOR_WALLET_NAME [default]: " BITTENSOR_WALLET_NAME </dev/tty
     BITTENSOR_WALLET_NAME=${BITTENSOR_WALLET_NAME:-default}
@@ -235,6 +257,13 @@ else
     BITTENSOR_WALLET_NAME=${BITTENSOR_WALLET_NAME:-$(parse_toml_value "wallet" "name")}
     BITTENSOR_WALLET_HOTKEY_NAME=${BITTENSOR_WALLET_HOTKEY_NAME:-$(parse_toml_value "wallet" "hotkey_name")}
     BITTENSOR_WALLET_DIRECTORY=${BITTENSOR_WALLET_DIRECTORY:-$(parse_toml_value "wallet" "directory")}
+    HOST_WALLET_DIRECTORY=${HOST_WALLET_DIRECTORY:-${BITTENSOR_WALLET_DIRECTORY}}
+
+    if [ "${BITTENSOR_WALLET_DIRECTORY}" != "${CONTAINER_WALLET_DIRECTORY}" ]; then
+        echo "Updating wallet directory in ${CONFIG_FILE} for container runtime: ${BITTENSOR_WALLET_DIRECTORY} -> ${CONTAINER_WALLET_DIRECTORY}"
+        sed -i "/^\\[wallet\\]/,/^\\[/{s|^directory = \".*\"|directory = \"${CONTAINER_WALLET_DIRECTORY}\"|}" "${CONFIG_FILE}"
+        BITTENSOR_WALLET_DIRECTORY="${CONTAINER_WALLET_DIRECTORY}"
+    fi
 fi
 
 expand_path() {
@@ -248,8 +277,19 @@ expand_path() {
     fi
 }
 
-WALLET_DIR_EXPANDED=$(expand_path "${BITTENSOR_WALLET_DIRECTORY}")
+if [ -z "${HOST_WALLET_DIRECTORY:-}" ] || [ "${HOST_WALLET_DIRECTORY}" = "${CONTAINER_WALLET_DIRECTORY}" ]; then
+    HOST_WALLET_DIRECTORY="${DEFAULT_HOST_WALLET_DIRECTORY}"
+fi
+
+WALLET_DIR_EXPANDED=$(expand_path "${HOST_WALLET_DIRECTORY}")
 HOTKEY_PUB_FILE="${WALLET_DIR_EXPANDED}/${BITTENSOR_WALLET_NAME}/hotkeys/${BITTENSOR_WALLET_HOTKEY_NAME}pub.txt"
+if [ ! -f "${HOTKEY_PUB_FILE}" ]; then
+    FALLBACK_WALLET_DIR="${HOME}/.bittensor/wallets"
+    FALLBACK_HOTKEY_PUB_FILE="${FALLBACK_WALLET_DIR}/${BITTENSOR_WALLET_NAME}/hotkeys/${BITTENSOR_WALLET_HOTKEY_NAME}pub.txt"
+    if [ -f "${FALLBACK_HOTKEY_PUB_FILE}" ]; then
+        HOTKEY_PUB_FILE="${FALLBACK_HOTKEY_PUB_FILE}"
+    fi
+fi
 HOTKEY_SS58=""
 if [ -f "${HOTKEY_PUB_FILE}" ]; then
     HOTKEY_SS58=$(sed -n 's/.*"ss58Address":"\([^"]*\)".*/\1/p' "${HOTKEY_PUB_FILE}")
@@ -309,7 +349,28 @@ if [ "${PROXY_MODE}" = "ihp" ]; then
         PRIVATE_POOL_PORT=${PRIVATE_POOL_PORT:-${DEFAULT_PRIVATE_POOL_PORT}}
         PRIVATE_POOL_PORT=$(echo "${PRIVATE_POOL_PORT}" | tr -d '[:space:]')
 
-        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}"
+        read -r -p "Enter IHP backup/private pool worker ID override (optional) []: " PRIVATE_POOL_WORKER_ID </dev/tty
+        PRIVATE_POOL_WORKER_ID=$(echo "${PRIVATE_POOL_WORKER_ID}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        DEFAULT_MAIN_POOL_WORKER_ID="sn${BITTENSOR_NETUID}auction.${HOTKEY_IDENTIFIER}.worker1"
+        echo ""
+        echo "Configure IHP central-proxy worker ID override:"
+        echo "  1) Use suggested value (${DEFAULT_MAIN_POOL_WORKER_ID})"
+        echo "  2) Set manually (leave empty for no override)"
+        read -r -p "Selection [1]: " MAIN_POOL_WORKER_ID_MODE </dev/tty
+        MAIN_POOL_WORKER_ID_MODE=${MAIN_POOL_WORKER_ID_MODE:-1}
+
+        case "${MAIN_POOL_WORKER_ID_MODE}" in
+            2)
+                read -r -p "Enter IHP central-proxy worker ID override (optional) []: " MAIN_POOL_WORKER_ID </dev/tty
+                MAIN_POOL_WORKER_ID=$(echo "${MAIN_POOL_WORKER_ID}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                ;;
+            *)
+                MAIN_POOL_WORKER_ID="${DEFAULT_MAIN_POOL_WORKER_ID}"
+                ;;
+        esac
+
+        write_default_ihp_pools "${NEW_PROXY_POOLS_FILE}" "${PRIVATE_POOL_HOST}" "${PRIVATE_POOL_PORT}" "${PRIVATE_POOL_WORKER_ID}" "${MAIN_POOL_WORKER_ID}"
     else
         echo "Using existing InfiniteHash Proxy pools file at ${NEW_PROXY_POOLS_FILE}"
     fi
@@ -405,6 +466,23 @@ if ! /tmp/update_miner_compose.sh "${ENV_NAME}" "${WORKING_DIRECTORY}"; then
     exit 1
 fi
 echo "update_miner_compose.sh ran successfully."
+
+echo "Pulling latest images and recreating services..."
+if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    if ! (cd "${WORKING_DIRECTORY}" && docker compose pull && docker compose up -d --remove-orphans); then
+        echo "Error: docker compose pull/up failed."
+        exit 1
+    fi
+elif command -v docker-compose &> /dev/null; then
+    if ! (cd "${WORKING_DIRECTORY}" && docker-compose pull && docker-compose up -d --remove-orphans); then
+        echo "Error: docker-compose pull/up failed."
+        exit 1
+    fi
+else
+    echo "Error: Neither docker compose nor docker-compose is available."
+    exit 1
+fi
+echo "Latest images applied successfully."
 
 CRON_CMD="*/15 * * * * cd ${WORKING_DIRECTORY} && curl -s ${GITHUB_URL}/deploy-config-${ENV_NAME}/installer/update_miner_compose.sh > /tmp/update_miner_compose.sh && chmod +x /tmp/update_miner_compose.sh && /tmp/update_miner_compose.sh ${ENV_NAME} ${WORKING_DIRECTORY} # INFINITE_HASH_APS_MINER_UPDATE"
 
