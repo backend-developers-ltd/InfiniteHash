@@ -74,6 +74,9 @@ Proxy mode options:
 - `InfiniteHash Proxy` (`ihp`, default on Enter)
 - `Braiins Farm Proxy` (`braiins`, optional)
 
+Worker/ASIC connection endpoint (both modes):
+- `stratum+tcp://<YOUR_SERVER_IP_OR_HOSTNAME>:3333`
+
 In `braiins` mode, the installer provisions Braiins Farm Proxy (`farm-proxy` and configurator sidecar) and keeps `brainsproxy/active_profile.toml` in sync with APS miner auction results.
 
 ### Routing identifiers by mode
