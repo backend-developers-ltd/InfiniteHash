@@ -13,7 +13,7 @@ fi
 GITHUB_URL="https://raw.githubusercontent.com/backend-developers-ltd/InfiniteHash/refs/heads"
 MAX_V2_WORKER_SIZE_PH="0.45"
 MAX_V2_TOTAL_WORKERS=1000
-DEFAULT_HOST_WALLET_DIRECTORY="~/.bittensor/wallets"
+DEFAULT_HOST_WALLET_DIRECTORY="${HOME}/.bittensor/wallets"
 CONTAINER_WALLET_DIRECTORY="/root/.bittensor/wallets"
 
 mkdir -p "${WORKING_DIRECTORY}"
