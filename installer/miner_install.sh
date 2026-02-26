@@ -446,6 +446,23 @@ if ! /tmp/update_miner_compose.sh "${ENV_NAME}" "${WORKING_DIRECTORY}"; then
 fi
 echo "update_miner_compose.sh ran successfully."
 
+echo "Pulling latest images and recreating services..."
+if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    if ! (cd "${WORKING_DIRECTORY}" && docker compose pull && docker compose up -d --remove-orphans); then
+        echo "Error: docker compose pull/up failed."
+        exit 1
+    fi
+elif command -v docker-compose &> /dev/null; then
+    if ! (cd "${WORKING_DIRECTORY}" && docker-compose pull && docker-compose up -d --remove-orphans); then
+        echo "Error: docker-compose pull/up failed."
+        exit 1
+    fi
+else
+    echo "Error: Neither docker compose nor docker-compose is available."
+    exit 1
+fi
+echo "Latest images applied successfully."
+
 CRON_CMD="*/15 * * * * cd ${WORKING_DIRECTORY} && curl -s ${GITHUB_URL}/deploy-config-${ENV_NAME}/installer/update_miner_compose.sh > /tmp/update_miner_compose.sh && chmod +x /tmp/update_miner_compose.sh && /tmp/update_miner_compose.sh ${ENV_NAME} ${WORKING_DIRECTORY} # INFINITE_HASH_APS_MINER_UPDATE"
 
 (crontab -l 2>/dev/null || echo "") | grep -v "INFINITE_HASH_APS_MINER_UPDATE" | { cat; echo "${CRON_CMD}"; } | crontab -
