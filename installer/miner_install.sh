@@ -61,6 +61,7 @@ write_default_ihp_pools() {
 name = "private-backup"
 host = "${backup_pool_host}"
 port = ${backup_pool_port}
+health_check_worker_id = "sn89auction.check"
 EOL
 
     if [ -n "${backup_pool_worker_id}" ]; then
@@ -75,6 +76,7 @@ name = "central-proxy"
 host = "stratum.infinitehash.xyz"
 port = 9332
 weight = 1
+health_check_worker_id = "sn89auction.check"
 EOL
 
     if [ -n "${main_pool_worker_id}" ]; then
@@ -86,7 +88,7 @@ EOL
     cat >> "${destination}" <<EOL
 
 [extranonce]
-extranonce2_size = 2
+extranonce2_size = 6
 
 [routing]
 rebalance_interval_seconds = 10
@@ -96,7 +98,20 @@ rebalance_threshold_percent = 10
 min_reassign_interval_seconds = 45
 pool_connect_timeout_seconds = 10
 pool_read_timeout_seconds = 300
-pool_unhealthy_cooldown_seconds = 10
+# How often to run pool health checks (seconds)
+pool_health_check_interval_seconds = 10
+
+# Maximum seconds for subscribe/authorize health-check flow (seconds)
+# Includes waiting for initial notify and difficulty messages
+pool_health_authorization_timeout_seconds = 10
+
+# Optional: minimum initial mining difficulty accepted during pool health checks
+# Uncomment to reject pools offering difficulty below this value
+#pool_health_min_initial_difficulty = 1000
+
+# Optional: maximum initial mining difficulty accepted during pool health checks
+# Uncomment to reject pools offering difficulty above this value
+#pool_health_max_initial_difficulty = 100000000
 worker_assignment_stale_threshold_seconds = 30
 disconnected_worker_retention_seconds = 900
 
