@@ -1,6 +1,6 @@
 services:
   miner:
-    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:4ba538db88ecf36f58a6aa5ea0304a28b1b9d3b060def34877b77d6900637fd9
+    image: ghcr.io/backend-developers-ltd/infinitehash-subnet-prod@sha256:677308a08ffdd881d01cf2b0a2a361ec24df118d2e5fda9f8f229341141bbf24
     pull_policy: always
     init: true
     restart: unless-stopped
@@ -47,7 +47,7 @@ services:
       <<: *logging
 
   ihp-proxy:
-    image: backenddevelopersltd/infinitehash-proxy-server:v1-latest
+    image: backenddevelopersltd/infinitehash-proxy-server@sha256:8ee04e0a60cc95c716b7c581af98bc1a03af051a506cc30a7ab1ed7a497b5ee6
     restart: unless-stopped
     stop_grace_period: 15s
     env_file:
@@ -68,7 +68,7 @@ services:
       <<: *logging
 
   ihp-api:
-    image: backenddevelopersltd/infinitehash-proxy-api:v1-latest
+    image: backenddevelopersltd/infinitehash-proxy-api@sha256:f741cb064966f8dfd4d4b5bf3d5fcd9fb081cafaa387d3d95946c2e3116329bd
     restart: unless-stopped
     env_file:
       - ./proxy/.env
