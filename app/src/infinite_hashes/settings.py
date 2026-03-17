@@ -332,14 +332,15 @@ CELERY_BEAT_SCHEDULE = {  # type: ignore
             "expires": datetime.timedelta(minutes=1).total_seconds(),
         },
     },
-    # Luxor hashrate scraper
-    "scrape_luxor": {
-        "task": "infinite_hashes.validator.tasks.scrape_luxor",
-        "schedule": datetime.timedelta(seconds=20),
-        "options": {
-            "expires": datetime.timedelta(seconds=40).total_seconds(),
-        },
-    },
+    # Disabled temporarily: Luxor scraping is turned off for now, but we are
+    # keeping the implementation in place so it can be restored quickly if needed.
+    # "scrape_luxor": {
+    #     "task": "infinite_hashes.validator.tasks.scrape_luxor",
+    #     "schedule": datetime.timedelta(seconds=20),
+    #     "options": {
+    #         "expires": datetime.timedelta(seconds=40).total_seconds(),
+    #     },
+    # },
     "cleanup_old_luxor_snapshots": {
         "task": "infinite_hashes.validator.tasks.cleanup_old_luxor_snapshots",
         "schedule": datetime.timedelta(hours=1),
@@ -362,7 +363,9 @@ CELERY_TASK_DEFAULT_EXCHANGE = "celery"
 CELERY_TASK_DEFAULT_ROUTING_KEY = "default"
 CELERY_TASK_DEFAULT_RATE_LIMIT = "1/s"
 CELERY_TASK_ROUTES = {
-    "infinite_hashes.validator.tasks.scrape_luxor": {"queue": "luxor"},
+    # Disabled temporarily: Luxor scraping is turned off for now, but we are
+    # keeping the implementation in place so it can be restored quickly if needed.
+    # "infinite_hashes.validator.tasks.scrape_luxor": {"queue": "luxor"},
     "infinite_hashes.validator.tasks.cleanup_old_luxor_snapshots": {"queue": "luxor"},
     "infinite_hashes.validator.tasks.calculate_weights": {"queue": "weights"},
     "infinite_hashes.validator.tasks.set_weights": {"queue": "weights"},

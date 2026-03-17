@@ -1339,6 +1339,9 @@ async def scrape_luxor_async(subaccount_name: str) -> int:
         raise
 
 
+# Luxor scraping is currently disabled in Celery beat/routing, but we are
+# keeping this task implementation in place temporarily so it can be restored
+# quickly if needed.
 @app.task(autoretry_for=(httpx.HTTPStatusError,))
 def scrape_luxor(subaccount_name: str | None = None) -> int:
     """Celery task to scrape Luxor hashrate data."""
