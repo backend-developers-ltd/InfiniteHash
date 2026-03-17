@@ -86,7 +86,8 @@ In `braiins` mode, the installer provisions Braiins Farm Proxy (`farm-proxy` and
 - The miner container uses `APS_MINER_SUBNET_POOL_NAME` (default: `central-proxy`) to select which pool gets absolute `target_hashrate`.
 - The selected pool name must exist in `proxy/pools.toml`; otherwise no subnet target update is applied.
 - During installation, if `proxy/pools.toml` does not exist yet, the script asks for backup/private pool host/port, optional backup `worker_id` override, and for `central-proxy` asks whether to use suggested identity format or set `worker_id` manually (manual input may be empty for no override), then writes provided values to `pools.backup`/`[[pools.main]]`.
-- Installer default sets `[extranonce].extranonce2_size = 2`.
+- Installer also sets `health_check_worker_id = "sn89auction.check"` for both `pools.backup` and `[[pools.main]]`.
+- Installer default sets `[extranonce].extranonce2_size = 6`.
 - After updating `proxy/pools.toml`, APS miner touches reload sentinel `APS_MINER_IHP_RELOAD_SENTINEL` (default: `/root/src/proxy/.reload-ihp`); sidecar `ihp-proxy-reloader` then runs `kill -HUP 1` in `ihp-proxy` PID namespace.
 
 `braiins` mode:
