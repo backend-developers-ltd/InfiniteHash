@@ -280,22 +280,8 @@ CELERY_COMPRESSION = "gzip"  # task compression
 CELERY_MESSAGE_COMPRESSION = "gzip"  # result compression
 CELERY_SEND_EVENTS = True  # needed for worker monitoring
 CELERY_BEAT_SCHEDULE = {  # type: ignore
-    # Legacy mechanism 0 (weight-based)
-    "calculate_weights": {
-        "task": "infinite_hashes.validator.tasks.calculate_weights",
-        "schedule": datetime.timedelta(minutes=1),
-        "options": {
-            "expires": datetime.timedelta(minutes=1).total_seconds(),
-        },
-    },
-    "set_weights": {
-        "task": "infinite_hashes.validator.tasks.set_weights",
-        "schedule": datetime.timedelta(minutes=1),
-        "options": {
-            "expires": datetime.timedelta(minutes=1).total_seconds(),
-        },
-    },
-    # Auction mechanism 1
+    # Legacy mechanism 0 scheduling disabled. Auction weights are mirrored to
+    # both mechanisms from the auction pipeline.
     "process_auctions": {
         "task": "infinite_hashes.validator.tasks.process_auctions",
         "schedule": datetime.timedelta(minutes=5),

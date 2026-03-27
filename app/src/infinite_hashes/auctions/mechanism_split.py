@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 MECHANISM_SPLIT_DENOMINATOR = 65535
+AUCTION_MECHANISM_SHARE_FRACTION = 1.0
 
 
 async def fetch_mechanism_share_fraction(

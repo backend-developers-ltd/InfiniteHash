@@ -9,6 +9,7 @@ from infinite_hashes.validator.models import PriceObservation, WeightsBatch
 from infinite_hashes.validator.tasks import (
     calculate_weights,
     scrape_metrics,
+    set_auction_weights,
     set_weights,
 )
 
@@ -141,6 +142,38 @@ def test_set_weights_expired_batches(bittensor):
     batch.refresh_from_db()
 
     assert batch.should_be_scored is False
+
+
+@pytest.mark.django_db
+def test_set_auction_weights_sets_mech0_and_mech1(bittensor, monkeypatch):
+    bittensor.head.get = unittest.mock.AsyncMock(
+        return_value=unittest.mock.MagicMock(
+            number=1010,
+        ),
+    )
+    bittensor.subnet.return_value.epoch.return_value = range(719, 1080)
+
+    batch = WeightsBatch.objects.create(
+        block=1007,
+        epoch_start=719,
+        mechanism_id=1,
+        should_be_scored=True,
+        weights={
+            "hotkey_1": 1,
+            "hotkey_3": 3,
+        },
+    )
+
+    commit_mock = unittest.mock.AsyncMock(side_effect=[111, 111])
+    monkeypatch.setattr("infinite_hashes.validator.tasks.commit_mechanism_weights", commit_mock)
+
+    assert set_auction_weights()
+
+    mechanism_ids = [call.kwargs["mechanism_id"] for call in commit_mock.await_args_list]
+    assert mechanism_ids == [0, 1]
+
+    batch.refresh_from_db()
+    assert batch.scored is True
 
 
 @pytest.mark.django_db

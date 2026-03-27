@@ -4,6 +4,8 @@ from infinite_hashes.auctions.mechanism_split import (
     MECHANISM_SPLIT_DENOMINATOR,
     fetch_mechanism_share_fraction,
 )
+from infinite_hashes.consensus.bidding import FP, _compute_budget_ph
+from infinite_hashes.testutils.integration.budget_helper import alpha_tao_to_fp18, compute_alpha_tao_for_budget
 
 
 class _FakeState:
@@ -56,3 +58,24 @@ async def test_infer_mechanism_share_returns_none_without_state():
 
     with pytest.raises(RuntimeError):
         await fetch_mechanism_share_fraction(_NoStateBT(), netuid=1, mechanism_id=1)
+
+
+def test_alpha_tao_helper_keeps_full_budget_reachable_for_100_percent_auction_share():
+    target_budget_ph = 10.0
+    alpha_tao = compute_alpha_tao_for_budget(
+        target_budget_ph,
+        tao_usdc=45.0,
+        hashp_usdc=50.0,
+        mechanism_share=1.0,
+    )
+
+    computed_budget_ph = _compute_budget_ph(
+        alpha_tao_to_fp18(alpha_tao),
+        int(45.0 * FP),
+        int(50.0 * FP),
+        0,
+        0,
+        int(0.41 * FP),
+    )
+
+    assert computed_budget_ph >= target_budget_ph
