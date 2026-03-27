@@ -6,7 +6,7 @@ from typing import Any, Literal
 import structlog
 from pydantic import Field
 
-from infinite_hashes.auctions.mechanism_split import fetch_mechanism_share_fraction
+from infinite_hashes.auctions.mechanism_split import AUCTION_MECHANISM_SHARE_FRACTION
 
 from .commitment import CompactCommitment
 from .price import (
@@ -312,11 +312,7 @@ async def select_auction_winners_async(
     share_fp18 = miners_share_fp18
     share_fraction: float | None = None
     if share_fp18 is None:
-        share_fraction = await fetch_mechanism_share_fraction(
-            bt,
-            netuid,
-            mechanism_id,
-        )
+        share_fraction = AUCTION_MECHANISM_SHARE_FRACTION
         share_fp18 = int(share_fraction * BASE_MINER_SHARE * FP)
     miner_share_per_block = float(share_fp18) / FP
 

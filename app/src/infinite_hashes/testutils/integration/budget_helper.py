@@ -3,8 +3,10 @@
 Allows easy control of available PH budget by adjusting ALPHA_TAO price.
 """
 
+import math
+
 MECHANISM_SPLIT_DENOMINATOR = 65535
-DEFAULT_MECHANISM_SPLIT = (52428, 13107)  # 80% -> mechanism 0, 20% -> mechanism 1
+DEFAULT_MECHANISM_SPLIT = (0, 65535)  # 0% -> mechanism 0, 100% -> mechanism 1
 DEFAULT_MECHANISM_0_SHARE = DEFAULT_MECHANISM_SPLIT[0] / MECHANISM_SPLIT_DENOMINATOR
 DEFAULT_MECHANISM_1_SHARE = DEFAULT_MECHANISM_SPLIT[1] / MECHANISM_SPLIT_DENOMINATOR
 
@@ -72,7 +74,9 @@ def alpha_tao_to_fp18(alpha_tao: float) -> int:
         >>> alpha_tao_to_fp18(0.25)
         250000000000000000
     """
-    return int(alpha_tao * 10**18)
+    # Round upward so test scenarios targeting an exact PH budget do not end up
+    # infinitesimally below the desired budget after FP18 truncation.
+    return math.ceil(alpha_tao * 10**18)
 
 
 def compute_budget_summary(

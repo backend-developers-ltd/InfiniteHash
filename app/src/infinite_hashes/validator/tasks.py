@@ -19,7 +19,7 @@ from celery.utils.log import get_task_logger
 from django.conf import settings
 from django.db import transaction
 
-from infinite_hashes.auctions.mechanism_split import fetch_mechanism_share_fraction
+from infinite_hashes.auctions.mechanism_split import AUCTION_MECHANISM_SHARE_FRACTION
 from infinite_hashes.celery import app
 from infinite_hashes.utils import run_async
 from infinite_hashes.validator import auction_processing as auct
@@ -30,6 +30,8 @@ from infinite_hashes.validator.models import AuctionResult, BannedMiner, LuxorSn
 WEIGHT_SETTING_ATTEMPTS = 100
 WEIGHT_SETTING_FAILURE_BACKOFF = 5
 WEIGHT_SETTING_FINALIZATION_TIMEOUT = 120
+AUCTION_WEIGHT_MECHANISM_IDS = (0, 1)
+BASE_MINER_SHARE = 0.41
 
 Hashrates: TypeAlias = dict[str, list[int]]
 
@@ -674,25 +676,14 @@ async def calculate_auction_weights_async():
         )
 
         blocks_per_day = 7200
-        base_miner_share = 0.41  # Base miner allocation per block (pre-mechanism split)
-        mechanism_share_fraction = await fetch_mechanism_share_fraction(
-            bittensor,
-            settings.BITTENSOR_NETUID,
-            mechanism_id=1,
-        )
-        if mechanism_share_fraction is None or mechanism_share_fraction <= 0:
-            raise RuntimeError(
-                f"Mechanism emission share must be positive; received {mechanism_share_fraction!r} for mechanism 1"
-            )
-
-        miner_share_per_block = base_miner_share * mechanism_share_fraction
+        mechanism_share_fraction = AUCTION_MECHANISM_SHARE_FRACTION
+        miner_share_per_block = BASE_MINER_SHARE * mechanism_share_fraction
         daily_alpha = blocks_per_day * miner_share_per_block
 
         logger.debug(
-            "Mechanism emission share",
-            mechanism_id=1,
+            "Auction emission share fixed",
             mechanism_share_fraction=mechanism_share_fraction,
-            base_miner_share=base_miner_share,
+            base_miner_share=BASE_MINER_SHARE,
             miner_share_per_block=miner_share_per_block,
             daily_alpha=daily_alpha,
         )
@@ -892,7 +883,7 @@ def calculate_auction_weights(*, event_loop: Any = None):
 
 
 async def set_auction_weights_async() -> bool:
-    """Set weights for mechanism 1 using set_mechanism_weights."""
+    """Set auction weights for both mechanism 0 and mechanism 1."""
     batches = [
         batch
         async for batch in WeightsBatch.objects.filter(
@@ -976,60 +967,71 @@ async def set_auction_weights_async() -> bool:
             batch.scored = True
 
         if not weights_by_uid:
-            logger.warning("No weights to set for mechanism 1")
+            logger.warning("No auction weights to set")
             return False
 
-        # Commit weights using commit/reveal scheme (same pattern as mechanism 0)
-        reveal_round = None
-        use_direct_set = False
-        try:
-            async for attempt in tenacity.AsyncRetrying(
-                before_sleep=tenacity.before_sleep_log(logger, logging.ERROR),
-                stop=tenacity.stop_after_attempt(1),
-                wait=tenacity.wait_fixed(WEIGHT_SETTING_FAILURE_BACKOFF),
-            ):
-                with attempt:
-                    reveal_round = await commit_mechanism_weights(
-                        bittensor=bittensor,
-                        netuid=settings.BITTENSOR_NETUID,
-                        mechanism_id=1,
-                        weights=weights_by_uid,
-                        version_key=0,
-                    )
-        except Exception as exc:
-            message = str(exc).lower()
-            if isinstance(exc, turbobt.subtensor.exceptions.CommitRevealDisabled) or (
-                "commitrevealdisabled" in message
-                or "commitrevealv3disabled" in message
-                or "commit reveal" in message
-                or "commit/reveal" in message
-            ):
-                logger.warning(
-                    "Commit-reveal disabled for mechanism 1, falling back to set_mechanism_weights",
-                    error=str(exc),
-                )
-                use_direct_set = True
-            else:
-                raise
+        submission_results = []
+        weights_u16 = normalize_weights_to_u16(weights_by_uid)
 
-        if use_direct_set:
-            weights_u16 = normalize_weights_to_u16(weights_by_uid)
+        for mechanism_id in AUCTION_WEIGHT_MECHANISM_IDS:
+            reveal_round = None
+            use_direct_set = False
             try:
-                uids, weight_values = zip(*weights_u16.items())
-            except ValueError:
-                uids, weight_values = [], []
+                async for attempt in tenacity.AsyncRetrying(
+                    before_sleep=tenacity.before_sleep_log(logger, logging.ERROR),
+                    stop=tenacity.stop_after_attempt(1),
+                    wait=tenacity.wait_fixed(WEIGHT_SETTING_FAILURE_BACKOFF),
+                ):
+                    with attempt:
+                        reveal_round = await commit_mechanism_weights(
+                            bittensor=bittensor,
+                            netuid=settings.BITTENSOR_NETUID,
+                            mechanism_id=mechanism_id,
+                            weights=weights_by_uid,
+                            version_key=0,
+                        )
+            except Exception as exc:
+                message = str(exc).lower()
+                if isinstance(exc, turbobt.subtensor.exceptions.CommitRevealDisabled) or (
+                    "commitrevealdisabled" in message
+                    or "commitrevealv3disabled" in message
+                    or "commit reveal" in message
+                    or "commit/reveal" in message
+                ):
+                    logger.warning(
+                        "Commit-reveal disabled for mechanism, falling back to set_mechanism_weights",
+                        mechanism_id=mechanism_id,
+                        error=str(exc),
+                    )
+                    use_direct_set = True
+                else:
+                    raise
 
-            extrinsic = await bittensor.subtensor.subtensor_module.set_mechanism_weights(
-                settings.BITTENSOR_NETUID,
-                list(uids),
-                mechanism_id=1,
-                weights=list(weight_values),
-                version_key=0,
-                wallet=bittensor.wallet,
-            )
-            await asyncio.wait_for(
-                extrinsic.wait_for_finalization(),
-                timeout=WEIGHT_SETTING_FINALIZATION_TIMEOUT,
+            if use_direct_set:
+                try:
+                    uids, weight_values = zip(*weights_u16.items())
+                except ValueError:
+                    uids, weight_values = [], []
+
+                extrinsic = await bittensor.subtensor.subtensor_module.set_mechanism_weights(
+                    settings.BITTENSOR_NETUID,
+                    list(uids),
+                    mechanism_id=mechanism_id,
+                    weights=list(weight_values),
+                    version_key=0,
+                    wallet=bittensor.wallet,
+                )
+                await asyncio.wait_for(
+                    extrinsic.wait_for_finalization(),
+                    timeout=WEIGHT_SETTING_FINALIZATION_TIMEOUT,
+                )
+
+            submission_results.append(
+                {
+                    "mechanism_id": mechanism_id,
+                    "mode": "direct" if use_direct_set else "commit_reveal",
+                    "reveal_round": reveal_round,
+                }
             )
 
         await WeightsBatch.objects.abulk_update(
@@ -1037,19 +1039,12 @@ async def set_auction_weights_async() -> bool:
             fields=("scored",),
         )
 
-        if use_direct_set:
-            logger.info(
-                "Auction weights set for mechanism 1 (direct): %s UIDs, batches: [%s]",
-                len(weights_by_uid),
-                ", ".join(str(batch.id) for batch in batches),
-            )
-        else:
-            logger.info(
-                "Auction weights committed for mechanism 1 (commit/reveal): %s UIDs, reveal_round: %s, batches: [%s]",
-                len(weights_by_uid),
-                reveal_round,
-                ", ".join(str(batch.id) for batch in batches),
-            )
+        logger.info(
+            "Auction weights submitted",
+            mechanisms=submission_results,
+            uid_count=len(weights_by_uid),
+            batches=[batch.id for batch in batches],
+        )
 
         return True
 
